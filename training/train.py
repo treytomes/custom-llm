@@ -1,11 +1,12 @@
 """
 train.py — Train a small GPT-style language model
 
-Features
-- Automatic corpus tokenization when needed
-- Uses data.py dataset + dataloader
-- Simple GPT training loop
-- Checkpointing
+Features:
+* Automatic corpus tokenization when needed
+* Uses data.py dataset + dataloader
+* Simple GPT training loop
+* Checkpointing
+* SageMaker integration
 """
 
 import os
@@ -17,16 +18,37 @@ import torch
 import torch.nn.functional as F
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
-
 from transformers import AutoTokenizer
 
 from .config import DEFAULT_CONFIG, update_vocab_size
 from .model import GPT
-from .data import (
-    tokenize_corpus,
-    load_token_tensor,
-    build_dataloader,
-)
+from .data import tokenize_corpus, load_token_tensor, build_dataloader
+
+
+# -------------------------------------------------------------
+# SageMaker Helpers
+# -------------------------------------------------------------
+
+
+def detect_sagemaker_paths(args):
+    """
+    Adjust paths automatically when running inside SageMaker.
+    """
+    sm_root = Path("/opt/ml")
+
+    if sm_root.exists():
+        print("SageMaker environment detected")
+
+    if args.corpus_dir is None:
+        args.corpus_dir = "/opt/ml/input/data/train"
+
+    if args.data_path is None:
+        args.data_path = "/opt/ml/input/data/train/corpus.pt"
+
+    if args.out_dir is None:
+        args.out_dir = "/opt/ml/checkpoints"
+
+    return args
 
 
 # -------------------------------------------------------------
@@ -38,8 +60,7 @@ def newest_file_mtime(directory):
     for p in Path(directory).rglob("*"):
         if p.is_file():
             newest = max(newest, p.stat().st_mtime)
-    return newest
-
+            return newest
 
 def corpus_needs_tokenization(corpus_dir, token_file):
     corpus_dir = Path(corpus_dir)
@@ -59,6 +80,7 @@ def corpus_needs_tokenization(corpus_dir, token_file):
 # -------------------------------------------------------------
 
 def main(args):
+    args = detect_sagemaker_paths(args)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -68,15 +90,14 @@ def main(args):
     token_file.parent.mkdir(parents=True, exist_ok=True)
 
     cfg = DEFAULT_CONFIG.copy()
-    
+
     print("Loading tokenizer...")
-    tokenizer = AutoTokenizer.from_pretrained(cfg["tokenizer"])
+    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
     cfg = update_vocab_size(cfg, tokenizer)
 
     # ---------------------------------------------------------
     # Tokenize if needed
     # ---------------------------------------------------------
-
     if corpus_needs_tokenization(corpus_dir, token_file):
         print("Corpus changed or tokens missing — tokenizing...")
         tokenize_corpus(
@@ -90,16 +111,19 @@ def main(args):
     # ---------------------------------------------------------
     # Load tokens
     # ---------------------------------------------------------
-
     print(f"Loading corpus: {token_file}")
+
     tokens = load_token_tensor(token_file)
 
-    print(f"Corpus size: {len(tokens):,} tokens ({len(tokens)/1e6:.2f}M)")
+    print(
+        f"Corpus size: {len(tokens):,} tokens "
+        f"({len(tokens)/1e6:.2f}M)"
+    )
 
     loader = build_dataloader(
         tokens,
         block_size=cfg["block_size"],
-        batch_size=cfg["batch_size"],
+        batch_size=args.batch_size,
         shuffle=True,
     )
 
@@ -108,7 +132,6 @@ def main(args):
     # ---------------------------------------------------------
     # Model
     # ---------------------------------------------------------
-
     model = GPT(
         vocab_size=cfg["vocab_size"],
         dim=cfg["dim"],
@@ -119,20 +142,27 @@ def main(args):
 
     print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
 
-    optimizer = AdamW(model.parameters(), lr=cfg["learning_rate"], weight_decay=0.1)
-    scheduler = CosineAnnealingLR(optimizer, cfg["max_steps"])
+    optimizer = AdamW(
+        model.parameters(),
+        lr=args.lr,
+        weight_decay=0.1,
+    )
 
-    os.makedirs(args.out_dir, exist_ok=True)
+    scheduler = CosineAnnealingLR(
+        optimizer,
+        args.steps,
+    )
+
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     # ---------------------------------------------------------
     # Training loop
     # ---------------------------------------------------------
-
     step = 0
     start_time = time.time()
 
     while step < args.steps:
-
         try:
             batch = next(data_iter)
         except StopIteration:
@@ -146,7 +176,7 @@ def main(args):
 
         loss = F.cross_entropy(
             logits.view(-1, logits.size(-1)),
-            y.view(-1)
+            y.view(-1),
         )
 
         optimizer.zero_grad()
@@ -166,9 +196,9 @@ def main(args):
             )
 
         if step % args.save_interval == 0 and step > 0:
-            ckpt = Path(args.out_dir) / f"model_{step}.pt"
-            torch.save(model.state_dict(), ckpt)
-            print(f"Saved checkpoint: {ckpt}")
+            ckpt_path = out_dir / f"model_{step}.pt"
+            torch.save(model.state_dict(), ckpt_path)
+            print(f"Saved checkpoint: {ckpt_path}")
 
         step += 1
 
@@ -178,7 +208,6 @@ def main(args):
 # -------------------------------------------------------------
 
 if __name__ == "__main__":
-
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--corpus_dir", default="../corpus")
@@ -189,7 +218,6 @@ if __name__ == "__main__":
 
     parser.add_argument("--steps", type=int, default=20000)
     parser.add_argument("--batch_size", type=int, default=8)
-
     parser.add_argument("--lr", type=float, default=3e-4)
 
     parser.add_argument("--log_interval", type=int, default=50)
