@@ -22,6 +22,13 @@ chmod +x sync_corpus_to_s3.sh
 ./sync_corpus_to_s3.sh
 ```
 
+## Sync the latest checkpoint from S3
+
+```bash
+chmod +x sync_checkpoints.sh
+./sync_checkpoints.sh
+```
+
 ### What it does
 
 1. Deletes everything under: `s3://bitnet-training-456088019014-us-east-1-an/corpus/`
