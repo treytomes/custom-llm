@@ -1,0 +1,11 @@
+{
+	"editor.insertSpaces": true,
+	"editor.formatOnSave": true,
+	"editor.defaultFormatter": "ms-python.python",
+	"editor.formatOnPaste": true,
+	"cSpell.words": [
+		"GELU",
+		"mistralai",
+		"pycache"
+	]
+}
