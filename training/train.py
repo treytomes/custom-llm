@@ -9,7 +9,7 @@ Features:
 * SageMaker integration
 """
 
-import os
+import boto3
 import time
 from pathlib import Path
 import argparse
@@ -28,7 +28,6 @@ from .data import tokenize_corpus, load_token_tensor, build_dataloader
 # -------------------------------------------------------------
 # SageMaker Helpers
 # -------------------------------------------------------------
-
 
 def detect_sagemaker_paths(args):
     """
@@ -51,9 +50,36 @@ def detect_sagemaker_paths(args):
     return args
 
 
+def upload_checkpoint(s3, bucket, prefix, file_path):
+    key = f"{prefix}/{Path(file_path).name}"
+    print(f"Uploading {file_path} → s3://{bucket}/{key}")
+    s3.upload_file(str(file_path), bucket, key)
+
+
 # -------------------------------------------------------------
 # Helpers
 # -------------------------------------------------------------
+
+def try_resume_checkpoint(model, optimizer, checkpoint_dir, device):
+    latest = Path(checkpoint_dir) / "latest.pt"
+
+    if not latest.exists():
+        print("No checkpoint found — starting fresh.")
+        return 0
+
+    print(f"Resuming from checkpoint: {latest}")
+
+    ckpt = torch.load(latest, map_location=device)
+
+    model.load_state_dict(ckpt["model"])
+    optimizer.load_state_dict(ckpt["optimizer"])
+
+    step = ckpt.get("step", 0)
+
+    print(f"Resumed training from step {step}")
+
+    return step
+
 
 def newest_file_mtime(directory):
     newest = 0
@@ -81,6 +107,11 @@ def corpus_needs_tokenization(corpus_dir, token_file):
 
 def main(args):
     args = detect_sagemaker_paths(args)
+
+    s3 = boto3.client("s3")
+
+    s3_bucket = args.s3_bucket
+    s3_prefix = "checkpoints"
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -142,16 +173,18 @@ def main(args):
 
     print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
 
-    optimizer = AdamW(
-        model.parameters(),
-        lr=args.lr,
-        weight_decay=0.1,
+    optimizer = AdamW(model.parameters(), lr=args.lr, weight_decay=0.1)
+
+    start_step = try_resume_checkpoint(
+        model,
+        optimizer,
+        args.out_dir,
+        device
     )
 
-    scheduler = CosineAnnealingLR(
-        optimizer,
-        args.steps,
-    )
+    scheduler = CosineAnnealingLR(optimizer, args.steps)
+
+    step = start_step
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -195,10 +228,30 @@ def main(args):
                 f"{elapsed:.1f}s"
             )
 
+        # if step % args.save_interval == 0 and step > 0:
+        #     ckpt_path = out_dir / f"model_{step}.pt"
+        #     torch.save(model.state_dict(), ckpt_path)
+        #     print(f"Saved checkpoint: {ckpt_path}")
+
         if step % args.save_interval == 0 and step > 0:
-            ckpt_path = out_dir / f"model_{step}.pt"
-            torch.save(model.state_dict(), ckpt_path)
-            print(f"Saved checkpoint: {ckpt_path}")
+            ckpt = Path(args.out_dir) / f"model_{step}.pt"
+            latest = Path(args.out_dir) / "latest.pt"
+
+            checkpoint = {
+                "step": step,
+                "model": model.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "config": cfg,
+            }
+            
+            torch.save(checkpoint, ckpt)
+            torch.save(checkpoint, latest)
+
+            print(f"Saved checkpoint: {ckpt}")
+
+            if args.s3_bucket:
+                upload_checkpoint(s3, args.s3_bucket, s3_prefix, ckpt)
+                upload_checkpoint(s3, args.s3_bucket, s3_prefix, latest)
 
         step += 1
 
@@ -222,6 +275,8 @@ if __name__ == "__main__":
 
     parser.add_argument("--log_interval", type=int, default=50)
     parser.add_argument("--save_interval", type=int, default=1000)
+
+    parser.add_argument("--s3_bucket", default=None)
 
     args = parser.parse_args()
 

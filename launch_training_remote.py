@@ -33,6 +33,7 @@ estimator = PyTorch(
     hyperparameters={
         "data_dir": "/opt/ml/input/data/train",
         "output_dir": "/opt/ml/checkpoints",
+        "s3_bucket": bucket,
     }
 )
 
