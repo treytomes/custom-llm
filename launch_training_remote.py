@@ -16,8 +16,8 @@ checkpoint_s3 = f"s3://{bucket}/checkpoints/"
 
 
 estimator = PyTorch(
-    entry_point="train.py",
-    source_dir="./training",
+    entry_point="launch_training_local.py",
+    source_dir=".",
 
     role=role,
     instance_count=1,
