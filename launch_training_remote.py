@@ -1,4 +1,4 @@
-# launch_training.py
+# launch_training_remote.py
 
 import sagemaker
 from sagemaker.pytorch import PyTorch
