@@ -4,7 +4,9 @@
 	"editor.defaultFormatter": "ms-python.python",
 	"editor.formatOnPaste": true,
 	"cSpell.words": [
+		"Dispreferred",
 		"GELU",
+		"interiority",
 		"mistralai",
 		"multinomial",
 		"pycache",
