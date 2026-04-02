@@ -54,7 +54,7 @@ def main():
         tokenizer=tokenizer_name,
         seq_len=512,
         batch_size=8,
-        steps=50000,
+        steps=80000,
         dim=512,
         layers=12,
         heads=8,
