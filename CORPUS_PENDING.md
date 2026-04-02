@@ -1,6 +1,6 @@
 **Resilience & Moral Courage**
 
-- *The Diary of a Young Girl* — Anne Frank. Extraordinary emotional depth and intellectual curiosity under the most extreme circumstances imaginable. One of the most powerful examples of inner life preserved in language.
++ *The Diary of a Young Girl* — Anne Frank. Extraordinary emotional depth and intellectual curiosity under the most extreme circumstances imaginable. One of the most powerful examples of inner life preserved in language.
 - *Up From Slavery* — Booker T. Washington. Perseverance and dignity across a genuinely harrowing life, written with remarkable lack of bitterness.
 - *Narrative of the Life of Frederick Douglass* — Moral courage in its rawest form. The prose is also surprisingly beautiful and forceful.
 

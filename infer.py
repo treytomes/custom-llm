@@ -1,4 +1,4 @@
-# test_checkpoint.py
+# infer.py
 
 import torch
 from transformers import AutoTokenizer
@@ -8,11 +8,12 @@ from training.config import DEFAULT_CONFIG
 
 
 CHECKPOINT_PATH = "./checkpoints/latest.pt"
-TOKENIZER_NAME = "mistralai/Mistral-7B-v0.1"
+TOKENIZER_NAME  = "mistralai/Mistral-7B-v0.1"
 
-MAX_NEW_TOKENS = 100
-TEMPERATURE = 0.8
-TOP_K = 40
+MAX_NEW_TOKENS  = 200
+TEMPERATURE     = 0.8
+TOP_K           = 40
+REP_PENALTY     = 1.3   # 1.0 = disabled; 1.2–1.5 is a reasonable range
 
 
 def load_model(checkpoint_path, device):
@@ -31,7 +32,7 @@ def load_model(checkpoint_path, device):
 
     checkpoint = torch.load(checkpoint_path, map_location=device)
 
-    # handle both raw state_dict and full checkpoint format
+    # Handle both raw state_dict and full checkpoint format
     if "model" in checkpoint:
         state = checkpoint["model"]
     else:
@@ -43,40 +44,81 @@ def load_model(checkpoint_path, device):
     return model, tokenizer, cfg
 
 
-def sample_next(logits):
+def sample_next(logits, generated_tokens=None, rep_penalty=1.0):
+    """
+    Sample the next token from logits.
+
+    Args:
+        logits:           Raw logits tensor of shape (1, vocab_size)
+        generated_tokens: 1-D tensor of already-generated token ids,
+                          used to penalise repetition. Pass None to disable.
+        rep_penalty:      Repetition penalty factor. Values > 1.0 reduce the
+                          probability of tokens that have already appeared.
+                          1.0 means no penalty.
+    """
+    logits = logits.clone()
+
+    # ── Repetition penalty ────────────────────────────────────────────
+    if generated_tokens is not None and rep_penalty != 1.0:
+        for tok_id in set(generated_tokens.tolist()):
+            logits[0, tok_id] /= rep_penalty
+
+    # ── Temperature ───────────────────────────────────────────────────
     logits = logits / TEMPERATURE
+
+    # ── Top-k filtering ───────────────────────────────────────────────
     if TOP_K is not None:
         v, _ = torch.topk(logits, TOP_K)
         logits[logits < v[:, [-1]]] = -float("inf")
+
     probs = torch.softmax(logits, dim=-1)
     return torch.multinomial(probs, num_samples=1)
 
 
 def generate(model, tokenizer, cfg, prompt, device):
     tokens = tokenizer.encode(prompt, return_tensors="pt").to(device)
+    eos_id = tokenizer.eos_token_id
 
     for _ in range(MAX_NEW_TOKENS):
-        tokens = tokens[:, -cfg["block_size"] :]
+
+        # Trim to context window
+        tokens = tokens[:, -cfg["block_size"]:]
+
         with torch.no_grad():
             logits = model(tokens)
+
+        # Only the last token's logits matter for next-token prediction
         logits = logits[:, -1, :]
-        next_token = sample_next(logits)
+
+        # Pass the current sequence (flattened to 1-D) for repetition penalty
+        next_token = sample_next(
+            logits,
+            generated_tokens=tokens[0],
+            rep_penalty=REP_PENALTY,
+        )
+
         tokens = torch.cat([tokens, next_token], dim=1)
-    return tokenizer.decode(tokens[0])
+
+        # Stop cleanly at end-of-sequence
+        if eos_id is not None and next_token.item() == eos_id:
+            break
+
+    return tokenizer.decode(tokens[0], skip_special_tokens=True)
 
 
 def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Device: {device}")
     print("Loading model...")
     model, tokenizer, cfg = load_model(CHECKPOINT_PATH, device)
-    print("Model loaded")
+    print("Model loaded\n")
+
     while True:
-        prompt = input("\nPrompt > ")
-        if not prompt.strip():
+        prompt = input("Prompt > ").strip()
+        if not prompt:
             continue
         output = generate(model, tokenizer, cfg, prompt, device)
-        print("\n--- Output ---\n")
-        print(output)
+        print(f"\n--- Output ---\n\n{output}\n")
 
 
 if __name__ == "__main__":
