@@ -1,7 +1,6 @@
 # test_checkpoint.py
 
 import torch
-from pathlib import Path
 from transformers import AutoTokenizer
 
 from training.model import GPT
