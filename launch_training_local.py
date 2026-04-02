@@ -11,7 +11,7 @@ ROOT = Path(__file__).parent
 DEFAULT_CORPUS = ROOT / "corpus"
 DEFAULT_DATA = ROOT / "data"
 DEFAULT_CHECKPOINTS = ROOT / "checkpoints"
-
+TRAINING_STEPS = 100000
 
 def main():
 
@@ -54,7 +54,7 @@ def main():
         tokenizer=tokenizer_name,
         seq_len=512,
         batch_size=8,
-        steps=80000,
+        steps=TRAINING_STEPS,
         dim=512,
         layers=12,
         heads=8,
