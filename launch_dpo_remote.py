@@ -97,8 +97,8 @@ estimator = PyTorch(
         "checkpoint": "/opt/ml/input/data/checkpoint/latest.pt",
         "output":     "/opt/ml/checkpoints",
         "steps":      50,
-        "lr":         2e-6,
-        "beta":       0.1,
+        "lr":         5e-7,
+        "beta":       0.05,
         "log-every":  10,
     }
 )

@@ -7,7 +7,8 @@ from training.model import GPT
 from training.config import DEFAULT_CONFIG
 
 
-CHECKPOINT_PATH = "./checkpoints/latest.pt"
+# CHECKPOINT_PATH = "./checkpoints/latest.pt"
+CHECKPOINT_PATH = "./checkpoints/dpo/dpo_latest.pt"
 TOKENIZER_NAME  = "mistralai/Mistral-7B-v0.1"
 
 MAX_NEW_TOKENS  = 200
@@ -15,6 +16,9 @@ TEMPERATURE     = 0.8
 TOP_K           = 40
 REP_PENALTY     = 1.3   # 1.0 = disabled; 1.2–1.5 is a reasonable range
 
+
+USER_NAME       = 'Trey'
+MODEL_NAME      = 'Scout'
 
 def load_model(checkpoint_path, device):
     cfg = DEFAULT_CONFIG.copy()
@@ -106,6 +110,10 @@ def generate(model, tokenizer, cfg, prompt, device):
     return tokenizer.decode(tokens[0], skip_special_tokens=True)
 
 
+def format_prompt(text: str) -> str:
+    return f"[{USER_NAME}] {text}\n\n[{MODEL_NAME}] "
+
+
 def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Device: {device}")
@@ -117,6 +125,7 @@ def main():
         prompt = input("Prompt > ").strip()
         if not prompt:
             continue
+        prompt = format_prompt(prompt)
         output = generate(model, tokenizer, cfg, prompt, device)
         print(f"\n--- Output ---\n\n{output}\n")
 
