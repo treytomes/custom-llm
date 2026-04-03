@@ -6,10 +6,15 @@
 	"cSpell.words": [
 		"Dispreferred",
 		"GELU",
+		"huggingface",
 		"interiority",
+		"logsigmoid",
 		"mistralai",
 		"multinomial",
 		"pycache",
+		"safetensors",
+		"sentencepiece",
+		"unreviewed",
 		"venv"
 	]
 }

@@ -237,6 +237,14 @@ The training container runs `launch_training_local.py`, ensuring local and remot
 
 ---
 
+# Directed Pair Optimization Training
+
+1. Run `interact_and_review.py` to interact with the model and receive candidate feedback.  Select the best response and optionally provide your own correction.
+
+2. Run `dpo.py` to convert the reviewed sessions into DPO training pairs that can be fed into the fine-tuning process.
+
+---
+
 # Future Work
 
 Planned improvements include:
