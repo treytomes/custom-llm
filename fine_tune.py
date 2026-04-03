@@ -6,8 +6,15 @@ Implements Direct Preference Optimization on top of a Phase 1 checkpoint.
 Given (prompt, chosen, rejected) pairs, updates the model to assign higher
 probability to chosen responses and lower probability to rejected ones.
 
-DPO loss:
-    L = -log(sigmoid(beta * (log_prob(chosen) - log_prob(rejected))))
+DPO loss (with reference model):
+    chosen_ratio   = log_prob_chosen   - ref_log_prob_chosen
+    rejected_ratio = log_prob_rejected - ref_log_prob_rejected
+    L = -log(sigmoid(beta * (chosen_ratio - rejected_ratio)))
+
+The reference model is a frozen copy of the base checkpoint. Computing
+the loss relative to the reference prevents the model from drifting
+arbitrarily — it must improve on chosen relative to where it started,
+not just in absolute terms.
 
 Where beta controls preference enforcement strength:
   - Low  (0.05): gentle nudge, preserves base model character
@@ -19,10 +26,11 @@ during Phase 1.
 
 Usage:
     python fine_tune.py --pairs ./dpo_data/pairs.jsonl
-    python fine_tune.py --pairs ./dpo_data/pairs.jsonl --steps 100 --lr 1e-6
+    python fine_tune.py --pairs ./dpo_data/pairs.jsonl --steps 50 --lr 2e-6
 """
 
 import argparse
+import copy
 import json
 import time
 from pathlib import Path
@@ -38,6 +46,7 @@ from training.config import DEFAULT_CONFIG
 USER_NAME  = "Trey"
 MODEL_NAME = "Scout"
 
+
 # ── Log probability computation ────────────────────────────────────────────────
 
 def compute_log_prob(
@@ -46,14 +55,14 @@ def compute_log_prob(
     response_start: int,
 ) -> torch.Tensor:
     """
-    Compute the mean log probability of response tokens.
+    Compute the mean log probability of response tokens only.
 
     Only the response portion is scored — not the prompt — because we
     want to measure how likely the model is to produce this response
     given this prompt.
 
     Args:
-        model:          GPT model
+        model:          GPT model (training or reference)
         input_ids:      (1, seq_len) tokenized prompt + response
         response_start: token index where the response begins
 
@@ -85,14 +94,27 @@ def compute_log_prob(
 def dpo_loss(
     log_prob_chosen: torch.Tensor,
     log_prob_rejected: torch.Tensor,
+    ref_log_prob_chosen: torch.Tensor,
+    ref_log_prob_rejected: torch.Tensor,
     beta: float = 0.1,
 ) -> torch.Tensor:
     """
-    Direct Preference Optimization loss.
-    Maximizes the log-ratio of chosen over rejected probabilities.
+    Direct Preference Optimization loss with reference model.
+
+    Computes the loss relative to a frozen reference model rather than
+    absolute log probabilities. This prevents arbitrary drift — the
+    training model must improve on chosen relative to where it started.
+
+    Args:
+        log_prob_chosen:       training model log prob of chosen response
+        log_prob_rejected:     training model log prob of rejected response
+        ref_log_prob_chosen:   reference model log prob of chosen response
+        ref_log_prob_rejected: reference model log prob of rejected response
+        beta:                  preference enforcement strength
     """
-    log_ratio = log_prob_chosen - log_prob_rejected
-    return -F.logsigmoid(beta * log_ratio)
+    chosen_ratio   = log_prob_chosen   - ref_log_prob_chosen
+    rejected_ratio = log_prob_rejected - ref_log_prob_rejected
+    return -F.logsigmoid(beta * (chosen_ratio - rejected_ratio))
 
 
 # ── Fine-tuning loop ───────────────────────────────────────────────────────────
@@ -101,7 +123,7 @@ def fine_tune(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     print(f"\n{'═' * 60}")
-    print("  DPO Fine-tuning (Phase 2)")
+    print(f"  DPO Fine-tuning — {MODEL_NAME}")
     print(f"{'═' * 60}")
     print(f"  Pairs      : {args.pairs}")
     print(f"  Checkpoint : {args.checkpoint}")
@@ -128,18 +150,21 @@ def fine_tune(args):
 
     print(f"Loaded {len(pairs)} preference pairs")
 
-    # ── Load model ─────────────────────────────────────────────────────────────
+    # ── Load tokenizer and config ──────────────────────────────────────────────
+    cfg = DEFAULT_CONFIG.copy()
+    tokenizer = AutoTokenizer.from_pretrained(cfg["tokenizer"])
+    cfg["vocab_size"] = tokenizer.vocab_size
+
+    # ── Load checkpoint ────────────────────────────────────────────────────────
     ckpt_path = Path(args.checkpoint)
     if not ckpt_path.exists():
         raise FileNotFoundError(f"Checkpoint not found: {ckpt_path}")
 
     print(f"Loading checkpoint: {ckpt_path}")
-    ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
+    ckpt  = torch.load(ckpt_path, map_location=device, weights_only=False)
+    state = ckpt["model"] if "model" in ckpt else ckpt
 
-    cfg = DEFAULT_CONFIG.copy()
-    tokenizer = AutoTokenizer.from_pretrained(cfg["tokenizer"])
-    cfg["vocab_size"] = tokenizer.vocab_size
-
+    # ── Build training model ───────────────────────────────────────────────────
     model = GPT(
         vocab_size=cfg["vocab_size"],
         dim=cfg["dim"],
@@ -147,15 +172,31 @@ def fine_tune(args):
         heads=cfg["heads"],
         max_seq=cfg["block_size"],
     ).to(device)
-
-    state = ckpt["model"] if "model" in ckpt else ckpt
     model.load_state_dict(state)
 
+    # ── Build frozen reference model ───────────────────────────────────────────
+    # The reference model is a frozen copy of the base checkpoint.
+    # It provides a stable baseline for the DPO loss so the training
+    # model is rewarded for improving relative to where it started,
+    # not just for assigning high probability to chosen in absolute terms.
+    ref_model = GPT(
+        vocab_size=cfg["vocab_size"],
+        dim=cfg["dim"],
+        layers=cfg["layers"],
+        heads=cfg["heads"],
+        max_seq=cfg["block_size"],
+    ).to(device)
+    ref_model.load_state_dict(copy.deepcopy(state))
+
+    for param in ref_model.parameters():
+        param.requires_grad = False
+    ref_model.eval()
+
     total_params = sum(p.numel() for p in model.parameters()) / 1e6
-    print(f"Model: {total_params:.1f}M parameters")
+    print(f"Model       : {total_params:.1f}M parameters")
+    print(f"Ref model   : frozen ({total_params:.1f}M parameters, no grad)")
 
     # ── Optimizer ─────────────────────────────────────────────────────────────
-    # Conservative LR — DPO on small models can destabilize quickly
     optimizer = torch.optim.AdamW(
         [p for p in model.parameters() if p.requires_grad],
         lr=args.lr,
@@ -176,6 +217,7 @@ def fine_tune(args):
     total_loss  = 0.0
     t0          = time.time()
     pairs_cycle = 0
+    skipped     = 0
 
     for step in range(args.steps):
         pair = pairs[pairs_cycle % len(pairs)]
@@ -185,19 +227,19 @@ def fine_tune(args):
         chosen   = pair["chosen"]
         rejected = pair["rejected"]
 
-        # Reconstruct full conversational context from history
+        # ── Reconstruct conversational context ────────────────────────────────
         history = pair.get("history", [])
         if history:
             context = "\n\n".join(history) + f"\n\n[{USER_NAME}] {prompt}"
         else:
             context = f"[{USER_NAME}] {prompt}"
 
-        # Prime with Scout's name so response_start lands correctly
+        # Prime with Scout's name — response_start lands after this
         prompt_text   = context + f"\n\n[{MODEL_NAME}]"
         chosen_text   = prompt_text + " " + chosen
         rejected_text = prompt_text + " " + rejected
 
-        # Find where the response starts
+        # ── Tokenize ──────────────────────────────────────────────────────────
         prompt_ids     = tokenizer.encode(prompt_text, add_special_tokens=False)
         response_start = len(prompt_ids)
 
@@ -209,21 +251,38 @@ def fine_tune(args):
             rejected_text, return_tensors="pt", add_special_tokens=False
         ).to(device)
 
-        # Skip sequences that exceed the context window
+        # ── Skip invalid sequences ────────────────────────────────────────────
         if chosen_ids.shape[1] > cfg["block_size"] or \
            rejected_ids.shape[1] > cfg["block_size"]:
+            skipped += 1
             continue
 
-        # Skip if response_start is beyond either sequence
         if response_start >= chosen_ids.shape[1] or \
            response_start >= rejected_ids.shape[1]:
+            skipped += 1
             continue
 
-        # ── DPO loss ───────────────────────────────────────────────────────────
+        # ── Reference log probs (no gradient) ─────────────────────────────────
+        with torch.no_grad():
+            ref_log_prob_chosen   = compute_log_prob(
+                ref_model, chosen_ids,   response_start
+            )
+            ref_log_prob_rejected = compute_log_prob(
+                ref_model, rejected_ids, response_start
+            )
+
+        # ── Training model log probs (with gradient) ───────────────────────────
         log_prob_chosen   = compute_log_prob(model, chosen_ids,   response_start)
         log_prob_rejected = compute_log_prob(model, rejected_ids, response_start)
 
-        loss = dpo_loss(log_prob_chosen, log_prob_rejected, beta=args.beta)
+        # ── DPO loss ───────────────────────────────────────────────────────────
+        loss = dpo_loss(
+            log_prob_chosen,
+            log_prob_rejected,
+            ref_log_prob_chosen,
+            ref_log_prob_rejected,
+            beta=args.beta,
+        )
 
         optimizer.zero_grad()
         loss.backward()
@@ -239,12 +298,17 @@ def fine_tune(args):
             print(
                 f"step {step+1:>5} | "
                 f"loss {avg_loss:.4f} | "
-                f"chosen_lp {log_prob_chosen.item():.3f} | "
-                f"rejected_lp {log_prob_rejected.item():.3f} | "
+                f"chosen_lp {log_prob_chosen.item():>7.3f} | "
+                f"rejected_lp {log_prob_rejected.item():>7.3f} | "
+                f"ref_chosen_lp {ref_log_prob_chosen.item():>7.3f} | "
                 f"{elapsed:.1f}s"
             )
             total_loss = 0.0
             t0 = time.time()
+
+    # ── Summary ────────────────────────────────────────────────────────────────
+    if skipped:
+        print(f"\nSkipped {skipped} pairs (exceeded context window or empty response)")
 
     # ── Save ───────────────────────────────────────────────────────────────────
     save_path = output_dir / "dpo_latest.pt"
@@ -256,30 +320,36 @@ def fine_tune(args):
     }, save_path)
 
     print(f"\n{'═' * 60}")
-    print(f"  DPO complete. Checkpoint: {save_path}")
+    print(f"  DPO complete.")
+    print(f"  Checkpoint : {save_path}")
     print(f"\n  Next steps:")
-    print(f"    Test  : python infer.py --checkpoint {save_path}")
-    print(f"    More  : run another interact.py session and accumulate pairs")
+    print(f"    Test : python infer.py --checkpoint {save_path}")
+    print(f"    More : run another interact.py session and accumulate pairs")
     print(f"{'═' * 60}")
 
 
 # ── Entry ──────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="DPO fine-tuning from preference pairs")
-
-    parser.add_argument("--pairs",      type=str, required=True)
+    parser = argparse.ArgumentParser(
+        description="DPO fine-tuning from preference pairs"
+    )
+    parser.add_argument("--pairs",      type=str, required=True,
+                        help="Path to pairs.jsonl from dpo.py")
     parser.add_argument("--checkpoint", type=str,
-                        default="./checkpoints/latest.pt")
+                        default="./checkpoints/latest.pt",
+                        help="Base Phase 1 checkpoint to fine-tune from")
     parser.add_argument("--output",     type=str,
-                        default="./checkpoints/dpo/")
-    parser.add_argument("--steps",      type=int, default=100,
-                        help="DPO steps (start small — 50 to 200)")
+                        default="./checkpoints/dpo/",
+                        help="Directory to save the fine-tuned checkpoint")
+    parser.add_argument("--steps",      type=int, default=50,
+                        help="DPO training steps (start small: 50-100)")
     parser.add_argument("--lr",         type=float, default=2e-6,
-                        help="Learning rate — keep conservative for 50M model")
+                        help="Learning rate — conservative for 50M model")
     parser.add_argument("--beta",       type=float, default=0.1,
-                        help="Preference enforcement strength")
-    parser.add_argument("--log-every",  type=int, default=10)
-
+                        help="Preference enforcement strength (0.05-0.5)")
+    parser.add_argument("--log-every",  type=int, default=10,
+                        help="Log every N steps")
     args = parser.parse_args()
+
     fine_tune(args)
