@@ -73,7 +73,7 @@ DEFAULT_DATA = ROOT / "data"
 # Directory used for model checkpoints
 DEFAULT_CHECKPOINTS = ROOT / "checkpoints"
 
-TRAINING_STEPS = 120000
+TRAINING_STEPS = 130000
 
 
 # -------------------------------------------------------------
