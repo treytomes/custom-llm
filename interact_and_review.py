@@ -24,7 +24,7 @@ from infer import sample_next
 
 TOKENIZER_NAME = "mistralai/Mistral-7B-v0.1"
 
-MAX_NEW_TOKENS = 200
+MAX_NEW_TOKENS = 60
 REP_PENALTY = 1.3
 
 USER_NAME = "Trey"

@@ -11,11 +11,10 @@ from training.config import DEFAULT_CONFIG
 CHECKPOINT_PATH = "./checkpoints/dpo/dpo_latest.pt"
 TOKENIZER_NAME  = "mistralai/Mistral-7B-v0.1"
 
-MAX_NEW_TOKENS  = 200
-TEMPERATURE     = 0.8
-TOP_K           = 40
+MAX_NEW_TOKENS  = 60
+TEMPERATURE     = 0.7
+TOP_K           = 30
 REP_PENALTY     = 1.3   # 1.0 = disabled; 1.2–1.5 is a reasonable range
-
 
 USER_NAME       = 'Trey'
 MODEL_NAME      = 'Scout'

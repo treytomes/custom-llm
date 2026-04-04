@@ -236,8 +236,8 @@ def fine_tune(args):
 
         # Prime with Scout's name — response_start lands after this
         prompt_text   = context + f"\n\n[{MODEL_NAME}]"
-        chosen_text   = prompt_text + " " + chosen
-        rejected_text = prompt_text + " " + rejected
+        chosen_text   = prompt_text + chosen
+        rejected_text = prompt_text + rejected
 
         # ── Tokenize ──────────────────────────────────────────────────────────
         prompt_ids     = tokenizer.encode(prompt_text, add_special_tokens=False)
