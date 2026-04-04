@@ -96,7 +96,7 @@ estimator = PyTorch(
         "pairs":      "/opt/ml/input/data/dpo/pairs.jsonl",
         "checkpoint": "/opt/ml/input/data/checkpoint/latest.pt",
         "output":     "/opt/ml/checkpoints",
-        "steps":      500,
+        "steps":      80,
         "lr":         5e-7,
         "beta":       0.05,
         "log-every":  10,
