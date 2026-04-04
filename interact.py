@@ -23,14 +23,7 @@ from training.model import GPT
 from training.config import DEFAULT_CONFIG
 from infer import sample_next
 
-
-TOKENIZER_NAME = "mistralai/Mistral-7B-v0.1"
-MAX_NEW_TOKENS = 200
-TEMPERATURE    = 0.8
-TOP_K          = 40
-REP_PENALTY    = 1.3
-USER_NAME      = "Trey"
-MODEL_NAME     = "Scout"
+from config import *
 
 
 # ── Session Logger ─────────────────────────────────────────────────────────────

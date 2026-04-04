@@ -6,18 +6,13 @@ from transformers import AutoTokenizer
 from training.model import GPT
 from training.config import DEFAULT_CONFIG
 
+from config import *
 
-# CHECKPOINT_PATH = "./checkpoints/latest.pt"
-CHECKPOINT_PATH = "./checkpoints/dpo/dpo_latest.pt"
-TOKENIZER_NAME  = "mistralai/Mistral-7B-v0.1"
 
-MAX_NEW_TOKENS  = 60
-TEMPERATURE     = 0.7
-TOP_K           = 30
-REP_PENALTY     = 1.3   # 1.0 = disabled; 1.2–1.5 is a reasonable range
+# Switch this line to test DPO output:
+ACTIVE_CHECKPOINT = CHECKPOINT_PATH
+# ACTIVE_CHECKPOINT = DPO_CHECKPOINT_PATH
 
-USER_NAME       = 'Trey'
-MODEL_NAME      = 'Scout'
 
 def load_model(checkpoint_path, device):
     cfg = DEFAULT_CONFIG.copy()
@@ -117,7 +112,7 @@ def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Device: {device}")
     print("Loading model...")
-    model, tokenizer, cfg = load_model(CHECKPOINT_PATH, device)
+    model, tokenizer, cfg = load_model(ACTIVE_CHECKPOINT, device)
     print("Model loaded\n")
 
     while True:

@@ -22,13 +22,7 @@ from training.model import GPT
 from training.config import DEFAULT_CONFIG
 from infer import sample_next
 
-TOKENIZER_NAME = "mistralai/Mistral-7B-v0.1"
-
-MAX_NEW_TOKENS = 60
-REP_PENALTY = 1.3
-
-USER_NAME = "Trey"
-MODEL_NAME = "Scout"
+from config import *
 
 
 class SessionLogger:
