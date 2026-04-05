@@ -10,8 +10,8 @@ from config import *
 
 
 # Switch this line to test DPO output:
-ACTIVE_CHECKPOINT = CHECKPOINT_PATH
-# ACTIVE_CHECKPOINT = DPO_CHECKPOINT_PATH
+# ACTIVE_CHECKPOINT = CHECKPOINT_PATH
+ACTIVE_CHECKPOINT = DPO_CHECKPOINT_PATH
 
 
 def load_model(checkpoint_path, device):
