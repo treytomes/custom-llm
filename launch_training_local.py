@@ -73,8 +73,9 @@ DEFAULT_DATA = ROOT / "data"
 # Directory used for model checkpoints
 DEFAULT_CHECKPOINTS = ROOT / "checkpoints"
 
-TRAINING_STEPS = 150000
-
+TRAINING_STEPS = 300000
+SAVE_INTERVAL  = 2000
+LOG_INTERVAL   = 100
 
 # -------------------------------------------------------------
 # Main Training Launcher
@@ -199,8 +200,8 @@ def main():
         lr=3e-4,
 
         # Logging / checkpointing
-        log_interval=50,
-        save_interval=1000,
+        log_interval=LOG_INTERVAL,
+        save_interval=SAVE_INTERVAL,
 
         # Optional S3 bucket for checkpoint uploads
         s3_bucket=args.s3_bucket,
