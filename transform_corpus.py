@@ -164,13 +164,24 @@ def clean_output(text: str) -> str:
 # ── Model loading ──────────────────────────────────────────────────────────────
 
 def load_model(model_id: str, cache_dir: Path, device: torch.device):
-    """
-    Load model from cache directory if available, otherwise download
-    from HuggingFace.
-    """
     if cache_dir.exists() and any(cache_dir.iterdir()):
-        print(f"Loading model from cache: {cache_dir}")
-        load_path = str(cache_dir)
+        # Resolve the actual model directory inside the HuggingFace
+        # hub cache structure: snapshots/<hash>/
+        snapshots_dir = cache_dir / "snapshots"
+        if snapshots_dir.exists():
+            # Take the first (usually only) snapshot hash directory
+            snapshot_dirs = sorted(snapshots_dir.iterdir())
+            if snapshot_dirs:
+                load_path = str(snapshot_dirs[0])
+                print(f"Loading model from snapshot: {load_path}")
+            else:
+                print(f"No snapshots found in cache — falling back to HuggingFace")
+                load_path = model_id
+        else:
+            # Cache directory exists but isn't hub structure —
+            # try using it directly (may work if files are at root)
+            load_path = str(cache_dir)
+            print(f"Loading model from cache root: {load_path}")
     else:
         print(f"Cache not found. Downloading {model_id} from HuggingFace...")
         load_path = model_id
