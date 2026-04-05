@@ -1,0 +1,1 @@
+aws s3 sync s3://bitnet-training-456088019014-us-east-1-an/corpus_transformed/ ./corpus_transformed/
