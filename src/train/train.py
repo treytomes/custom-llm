@@ -149,8 +149,11 @@ def validation_loss(model, val_tokens, device, num_batches=20):
 def run_training():
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
     logger.info("Device: %s", device)
+
+    torch.backends.cuda.enable_flash_sdp(True)
+    torch.backends.cuda.enable_mem_efficient_sdp(True)
+    torch.backends.cuda.enable_math_sdp(True)
 
     token_file = Path(config.DATA_PATH)
     checkpoint_dir = Path(config.CHECKPOINT_DIR)

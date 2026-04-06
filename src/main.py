@@ -13,6 +13,7 @@ from rich.console import Group
 import time
 
 import config
+from chat.infer import run_chat_repl
 from train.data import (
     corpus_needs_tokenization,
     load_token_tensor,
@@ -240,6 +241,14 @@ def train():
     with Live(refresh_per_second=4) as live:
         for stats in run_training():
             live.update(render_training_dashboard(stats))
+
+
+@app.command()
+def chat():
+    """
+    Start interactive chat with the trained model.
+    """
+    run_chat_repl()
 
 
 # ---------------------------------------------------------
