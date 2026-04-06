@@ -71,6 +71,8 @@ import time
 from pathlib import Path
 from dotenv import load_dotenv
 from openai import AzureOpenAI
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 
 load_dotenv()
 
@@ -332,38 +334,38 @@ def upload_to_s3(path, uri):
 # RUN PASS
 # ───────────────────────────────────────────────────────────
 
+
+def process_chapter(args_tuple):
+    client, chapter_path, voice_excerpt, output_dir, temperature, pass_number, upload_s3 = args_tuple
+    
+    out_check = output_dir / f"{chapter_path.stem}_p{pass_number}_c1.txt"
+    if out_check.exists():
+        return f"Skipped {chapter_path.name}"
+
+    conversations = transform(client, chapter_path.read_text(encoding="utf-8"), voice_excerpt, temperature)
+
+    for idx, conv in enumerate(conversations):
+        if not validate(conv):
+            continue
+        filename = f"{chapter_path.stem}_p{pass_number}_c{idx+1}.txt"
+        out_path = output_dir / filename
+        out_path.write_text(conv, encoding="utf-8")
+        if upload_s3:
+            upload_to_s3(out_path, upload_s3)
+
+    return f"Done {chapter_path.name}"
+
+
 def run_pass(client, chapters, voice_excerpt, output_dir,
-             temperature, pass_number, upload_s3):
+             temperature, pass_number, upload_s3, workers=5):
 
-    for i,chapter_path in enumerate(chapters):
+    tasks = [(client, ch, voice_excerpt, output_dir, temperature, pass_number, upload_s3)
+             for ch in chapters]
 
-        print(f"[pass {pass_number}] {i+1}/{len(chapters)} {chapter_path.name}")
-
-        chapter_text = chapter_path.read_text(encoding="utf-8")
-
-        conversations = transform(
-            client,
-            chapter_text,
-            voice_excerpt,
-            temperature + (pass_number*0.05)
-        )
-
-        for idx,conv in enumerate(conversations):
-
-            if not validate(conv):
-                continue
-
-            filename = f"{chapter_path.stem}_p{pass_number}_c{idx+1}.txt"
-
-            out_path = output_dir / filename
-            print(f"Writing to '{out_path}'.")
-
-            out_path.write_text(conv,encoding="utf-8")
-
-            if upload_s3:
-                upload_to_s3(out_path, upload_s3)
-
-        time.sleep(0.4)
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {executor.submit(process_chapter, t): t[1].name for t in tasks}
+        for future in as_completed(futures):
+            print(f"[pass {pass_number}] {future.result()}")
 
 # ───────────────────────────────────────────────────────────
 # MAIN
