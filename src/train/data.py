@@ -1,54 +1,39 @@
 """
 data.py — Dataset preparation and loading
 
-Handles tokenization and packaging of raw text into training batches.
-Designed to work with plain .txt files so you can feed it anything —
-books, essays, conversations, domain-specific text — without needing
-a specific dataset format.
-
-Usage:
-    # Prepare a tokenized dataset from raw text files
-    python data.py --input_dir ./corpus --output_dir ./data/prepared
-
-    # Or import and use in training:
-    from data import TextDataset, build_dataloader
+Library module for tokenization and dataset construction.
+No CLI, no direct console output. Logging is used so that
+the application entry point controls presentation.
 """
 
-import argparse
+import logging
 import random
-from pathlib import Path
-
 import torch
+from pathlib import Path
 from torch.utils.data import Dataset, DataLoader
 from transformers import PreTrainedTokenizer
+
+import config
+
+logger = logging.getLogger(__name__)
 
 
 class StreamingTextDataset(Dataset):
     """
     Streaming dataset over a flat token tensor.
-
-    Instead of precomputing sliding windows, we simply index
-    contiguous token chunks on demand.
-
-    This avoids dataset construction overhead and improves
-    training throughput.
     """
 
     def __init__(self, token_ids: torch.Tensor, block_size: int = 512):
-
         self.tokens = token_ids
         self.block_size = block_size
-
         self.n_samples = len(token_ids) - block_size - 1
 
     def __len__(self):
         return self.n_samples
 
     def __getitem__(self, idx):
-
         start = idx
         end = idx + self.block_size + 1
-
         chunk = self.tokens[start:end]
 
         input_ids = chunk[:-1].long()
@@ -60,6 +45,8 @@ class StreamingTextDataset(Dataset):
         }
 
 
+# -------------------------------------------------------------
+
 def tokenize_corpus(
     input_dir: str | Path,
     tokenizer: PreTrainedTokenizer,
@@ -69,19 +56,19 @@ def tokenize_corpus(
 ):
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
-        
+
     input_dir = Path(input_dir)
     output_path = Path(output_path)
 
-    files = sorted([
+    files = sorted(
         f for f in input_dir.rglob("*")
         if f.suffix.lower() in extensions and f.is_file()
-    ])
+    )
 
     if not files:
         raise ValueError(f"No {extensions} files found in {input_dir}")
 
-    print(f"Found {len(files)} files to tokenize")
+    logger.info("Found %d files to tokenize", len(files))
 
     if shuffle:
         random.shuffle(files)
@@ -90,7 +77,6 @@ def tokenize_corpus(
     total_chars = 0
 
     for i, fpath in enumerate(files):
-
         text = fpath.read_text(encoding="utf-8", errors="replace").strip()
 
         if not text:
@@ -99,56 +85,68 @@ def tokenize_corpus(
         total_chars += len(text)
 
         ids = tokenizer.encode(text, add_special_tokens=False)
-
         all_ids.extend(ids)
 
-        # EOS between documents
         if tokenizer.eos_token_id is not None:
-            all_ids.append(tokenizer.eos_token_id)  # teaches document boundaries [1]
+            all_ids.append(tokenizer.eos_token_id)
 
         if (i + 1) % 10 == 0 or (i + 1) == len(files):
-            print(f"[{i+1}/{len(files)}] {len(all_ids):,} tokens so far...")
+            logger.info(
+                "[%d/%d] %s tokens so far",
+                i + 1,
+                len(files),
+                f"{len(all_ids):,}",
+            )
 
     token_tensor = torch.tensor(all_ids, dtype=torch.long)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    artifact = {
+        "tokens": token_tensor,
+        "vocab_size": tokenizer.vocab_size,
+        "tokenizer_name": tokenizer.name_or_path,
+    }
 
-    torch.save(token_tensor, output_path)
+    torch.save(artifact, output_path)
 
-    print("\nTokenization complete:")
-    print(f"Files processed : {len(files)}")
-    print(f"Characters      : {total_chars:,}")
-    print(f"Tokens          : {len(all_ids):,}")
-    print(f"Compression     : {total_chars/len(all_ids):.2f} chars/token")
-    print(f"Saved to        : {output_path}")
+    logger.info("Tokenization complete")
+    logger.info("Files processed : %d", len(files))
+    logger.info("Characters      : %s", f"{total_chars:,}")
+    logger.info("Tokens          : %s", f"{len(all_ids):,}")
+    logger.info("Compression     : %.2f chars/token", total_chars / len(all_ids))
+    logger.info("Saved to        : %s", output_path)
 
     return token_tensor
 
 
-def load_token_tensor(path: str | Path) -> torch.Tensor:
+# -------------------------------------------------------------
 
-    path = Path(path)
+def load_token_tensor(path: str | Path):
+    obj = torch.load(path, weights_only=True)
 
-    if not path.exists():
-        raise FileNotFoundError(
-            f"Token file not found: {path}\n"
-            f"Run: python data.py --input_dir ./corpus --output_dir ./data"
-        )
+    if isinstance(obj, dict):
+        return obj["tokens"], obj.get("vocab_size")
+    else:
+        return obj, None
 
-    return torch.load(path, weights_only=True)
-
+# -------------------------------------------------------------
 
 def build_dataloader(
     token_tensor: torch.Tensor,
-    block_size: int = 512,
-    batch_size: int = 4,
+    block_size: int = config.BLOCK_SIZE,
+    batch_size: int = config.BATCH_SIZE,
     shuffle: bool = True,
-    num_workers: int = 0,
+    num_workers: int = config.NUM_WORKERS,
 ):
-
     dataset = StreamingTextDataset(token_tensor, block_size)
 
-    print(f"Dataset: {len(dataset):,} samples of {block_size} tokens each")
+    logger.info(
+        "Dataset: %s samples of %d tokens each",
+        f"{len(dataset):,}",
+        block_size,
+    )
+
+    # TODO: pin_memory=<is CUDA available?>, basically, this flag only works if acceleration is detected.
 
     return DataLoader(
         dataset,
@@ -159,52 +157,22 @@ def build_dataloader(
     )
 
 
-def make_sample_corpus(output_dir: str | Path):
+# -------------------------------------------------------------
 
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
+def newest_file_mtime(directory):
+    newest = 0
 
-    samples = [
-        ("sample1.txt", "Curiosity drives discovery."),
-        ("sample2.txt", "Reasoning improves understanding."),
-        ("sample3.txt", "Honesty strengthens communication."),
-    ]
+    for p in Path(directory).rglob("*"):
+        if p.is_file():
+            newest = max(newest, p.stat().st_mtime)
 
-    for filename, content in samples:
-        (output_dir / filename).write_text(content, encoding="utf-8")
-
-    print(f"Sample corpus written to {output_dir}")
+    return newest
 
 
-if __name__ == "__main__":
+def corpus_needs_tokenization(corpus_dir, token_file):
+    token_file = Path(token_file)
 
-    parser = argparse.ArgumentParser(description="Prepare training data")
+    if not token_file.exists():
+        return True
 
-    parser.add_argument("--input_dir", type=str, default="./corpus")
-    parser.add_argument("--output_dir", type=str, default="./data")
-    parser.add_argument(
-        "--tokenizer",
-        type=str,
-        default="mistralai/Mistral-7B-v0.1",
-    )
-    parser.add_argument("--make_sample", action="store_true")
-
-    args = parser.parse_args()
-
-    if args.make_sample:
-
-        make_sample_corpus(args.input_dir)
-
-    else:
-
-        from transformers import AutoTokenizer
-
-        print(f"Loading tokenizer: {args.tokenizer}")
-
-        tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
-
-        tokenize_corpus(
-            input_dir=args.input_dir,
-            tokenizer=tokenizer,
-            output_path=Path(args.output_dir) / "corpus.pt",
-        )
+    return newest_file_mtime(corpus_dir) > token_file.stat().st_mtime

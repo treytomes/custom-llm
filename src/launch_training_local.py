@@ -56,6 +56,8 @@ from train.data import tokenize_corpus
 from train.train import main as train_main
 from transformers import AutoTokenizer
 
+import config
+
 
 # -------------------------------------------------------------
 # Project Paths
@@ -73,6 +75,7 @@ DEFAULT_DATA = ROOT / "data"
 # Directory used for model checkpoints
 DEFAULT_CHECKPOINTS = ROOT / "checkpoints"
 
+SEQ_LEN        = config.BLOCK_SIZE
 TRAINING_STEPS = 300000
 SAVE_INTERVAL  = 2000
 LOG_INTERVAL   = 100
@@ -187,7 +190,7 @@ def main():
         tokenizer=tokenizer_name,
 
         # Model / training parameters
-        seq_len=512,          # Context window
+        seq_len=SEQ_LEN,          # Context window
         batch_size=8,         # Training batch size
         steps=TRAINING_STEPS, # Total training steps
 

@@ -16,6 +16,7 @@
 		"pycache",
 		"safetensors",
 		"sentencepiece",
+		"typer",
 		"unreviewed",
 		"venv"
 	]
