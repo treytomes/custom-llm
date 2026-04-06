@@ -4,3 +4,4 @@ How do you feel?
 
 What is something you have never thought about before?
 
+What are you thinking about right now?
