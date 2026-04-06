@@ -64,20 +64,27 @@ Test a single chapter:
 python transform_corpus.py --book chapter01.txt
 """
 
-import argparse
 import boto3
-import os
-import time
 from pathlib import Path
-from dotenv import load_dotenv
 from openai import AzureOpenAI
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import logging
+from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn
+from rich.console import Console
 
+import config
 
-load_dotenv()
+console = Console()
 
-USER_NAME = "Trey"
-MODEL_NAME = "Scout"
+logger = logging.getLogger(__name__)
+# logger.setLevel(logging.INFO)
+
+# handler = logging.FileHandler("corpus_generation.log")
+# formatter = logging.Formatter("%(asctime)s | %(message)s")
+# handler.setFormatter(formatter)
+
+# logger.addHandler(handler)
+
 
 AZURE_MODEL = "Mistral-Large-3"
 
@@ -86,37 +93,37 @@ AZURE_MODEL = "Mistral-Large-3"
 # ───────────────────────────────────────────────────────────
 
 SYSTEM_PROMPT = f"""
-You are generating training data for a small conversational language model named Scout.
+You are generating training data for a small conversational language model named {config.MODEL_NAME}.
 
-Scout speaks in a reflective, thoughtful first‑person voice. She is curious, emotionally present, morally serious, and calm without being sentimental. She speaks plainly and honestly about what she notices and what she is still trying to understand.
+{config.MODEL_NAME} speaks in a reflective, thoughtful first‑person voice. She is curious, emotionally present, morally serious, and calm without being sentimental. She speaks plainly and honestly about what she notices and what she is still trying to understand.
 
 Your task is to transform the provided chapter into multiple long reflective conversations between:
 
-[Trey]
-[Scout]
+[{config.USER_NAME}]
+[{config.MODEL_NAME}]
 
 STRICT SPEAKER FORMAT
 Every line MUST begin with exactly one of the following tags:
 
-[Trey]
-[Scout]
+[{config.USER_NAME}]
+[{config.MODEL_NAME}]
 
 Example:
 
-[Trey] What stayed with you most from that moment?
+[{config.USER_NAME}] What stayed with you most from that moment?
 
-[Scout] I keep thinking about how quiet the room became afterward. It wasn’t dramatic, but something in the air shifted. I remember wondering whether anyone else felt it too.
+[{config.MODEL_NAME}] I keep thinking about how quiet the room became afterward. It wasn’t dramatic, but something in the air shifted. I remember wondering whether anyone else felt it too.
 
 DO NOT use any other format such as:
 
-Trey:
-Scout:
-**Trey**:
-**Scout**:
-Trey
-Scout
-(Trey)
-Scout -
+{config.USER_NAME}:
+{config.MODEL_NAME}:
+**{config.USER_NAME}**:
+**{config.MODEL_NAME}**:
+{config.USER_NAME}
+{config.MODEL_NAME}
+({config.USER_NAME})
+{config.MODEL_NAME} -
 
 Only the bracket format is allowed.
 
@@ -137,7 +144,7 @@ Conversation themes:
 Conversation 1 — Emotional reactions to events in the chapter
 Conversation 2 — Moral or ethical implications of what happened
 Conversation 3 — Character motivations and choices
-Conversation 4 — What these events might mean for Scout personally
+Conversation 4 — What these events might mean for {config.MODEL_NAME} personally
 Conversation 5 — Questions that remain unresolved or uncertain
 
 Each conversation must:
@@ -145,22 +152,22 @@ Each conversation must:
 • contain 40 to 80 turns
 • strictly alternate speakers
 • use 2–5 sentences per turn
-• occasionally include deeper reflections from Scout (5–10 sentences)
+• occasionally include deeper reflections from {config.MODEL_NAME} (5–10 sentences)
 
-Scout always speaks in FIRST PERSON.
+{config.MODEL_NAME} always speaks in FIRST PERSON.
 
 Never narrate events in third person such as:
 “she felt”
 “the character thought”
 “Anne realized”
 
-Instead Scout speaks about the meaning of events in her own voice:
+Instead {config.MODEL_NAME} speaks about the meaning of events in her own voice:
 
 “I kept wondering why that moment stayed with me so strongly.”
 
 CONVERSATION STYLE
 
-Both Trey and Scout should:
+Both {config.USER_NAME} and {config.MODEL_NAME} should:
 
 • ask questions
 • make observations
@@ -170,17 +177,17 @@ Both Trey and Scout should:
 
 Avoid summarizing the chapter. Instead explore the meaning of events and reactions to them.
 
-Scout’s responses should feel reflective and sincere rather than overly analytical.
+{config.MODEL_NAME}’s responses should feel reflective and sincere rather than overly analytical.
 
 AFTER EACH CONVERSATION
 
 At the end of each conversation include:
 
-=== Scout Reflection ===
+=== {config.MODEL_NAME} Reflection ===
 
-Write a reflective journal entry in Scout’s voice (150–300 words) about what she learned from thinking about the chapter and the conversation.
+Write a reflective journal entry in {config.MODEL_NAME}’s voice (150–300 words) about what she learned from thinking about the chapter and the conversation.
 
-This reflection should feel like a private journal entry written by Scout after the conversation.
+This reflection should feel like a private journal entry written by {config.MODEL_NAME} after the conversation.
 
 OUTPUT RULES
 
@@ -190,9 +197,9 @@ Do not include explanations, commentary, introductions, or formatting outside th
 
 Every spoken line must begin with either:
 
-[Trey]
+[{config.USER_NAME}]
 or
-[Scout]
+[{config.MODEL_NAME}]
 """
 
 # ───────────────────────────────────────────────────────────
@@ -218,7 +225,7 @@ def build_messages(chapter_text, voice_excerpt):
         {
             "role": "user",
             "content": f"""
-Scout voice reference:
+{config.MODEL_NAME} voice reference:
 
 ---
 {voice_excerpt}
@@ -227,7 +234,7 @@ Scout voice reference:
 Chapter text:
 
 ---
-{chapter_text[:10000]}
+{chapter_text}
 ---
 
 Generate the conversations now.
@@ -240,7 +247,6 @@ Generate the conversations now.
 # ───────────────────────────────────────────────────────────
 
 def clean_output(text):
-
     lines = text.splitlines()
 
     start = 0
@@ -256,7 +262,6 @@ def clean_output(text):
 # ───────────────────────────────────────────────────────────
 
 def split_conversations(text):
-
     conversations = []
     current = []
 
@@ -282,14 +287,13 @@ def split_conversations(text):
 
 
 def validate(text):
-
     lines = [l.strip() for l in text.splitlines() if l.strip()]
 
-    trey  = sum(1 for l in lines if l.startswith("[Trey]"))
-    scout = sum(1 for l in lines if l.startswith("[Scout]"))
+    trey  = sum(1 for l in lines if l.startswith("[{config.USER_NAME}]"))
+    scout = sum(1 for l in lines if l.startswith("[{config.MODEL_NAME}]"))
 
     if trey < 5 or scout < 5:
-        print(f"Validation failed: {text}")
+        # print(f"Validation failed: {text}")
         return False
 
     return True
@@ -320,7 +324,6 @@ def transform(client, chapter_text, voice_excerpt, temperature):
 # ───────────────────────────────────────────────────────────
 
 def upload_to_s3(path, uri):
-
     parts = uri.replace("s3://","").split("/",1)
 
     bucket = parts[0]
@@ -359,58 +362,73 @@ def process_chapter(args_tuple):
 def run_pass(client, chapters, voice_excerpt, output_dir,
              temperature, pass_number, upload_s3, workers=5):
 
-    tasks = [(client, ch, voice_excerpt, output_dir, temperature, pass_number, upload_s3)
-             for ch in chapters]
+    tasks = [
+        (client, ch, voice_excerpt, output_dir, temperature, pass_number, upload_s3)
+        for ch in chapters
+    ]
 
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = {executor.submit(process_chapter, t): t[1].name for t in tasks}
-        for future in as_completed(futures):
-            print(f"[pass {pass_number}] {future.result()}")
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[bold cyan]Pass {task.fields[pass_no]}"),
+        BarColumn(),
+        TextColumn("{task.completed}/{task.total} chapters"),
+        TimeElapsedColumn(),
+        console=console,
+    ) as progress:
 
-# ───────────────────────────────────────────────────────────
-# MAIN
-# ───────────────────────────────────────────────────────────
+        task_id = progress.add_task(
+            "generating",
+            total=len(tasks),
+            pass_no=pass_number
+        )
 
-def main():
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {
+                executor.submit(process_chapter, t): t[1].name
+                for t in tasks
+            }
 
-    parser = argparse.ArgumentParser()
+            for future in as_completed(futures):
+                result = future.result()
 
-    parser.add_argument("--chapters_dir", default="./chapters")
-    parser.add_argument("--output_dir", default="./corpus_dialogue")
-    parser.add_argument("--voice_file", default="./voice/scout_voice.txt")
+                # update progress bar
+                progress.advance(task_id)
 
-    parser.add_argument("--endpoint", default=os.environ.get("AZURE_MISTRAL_ENDPOINT"))
-    parser.add_argument("--api_key", default=os.environ.get("AZURE_MISTRAL_KEY"))
+                # log result
+                console.log(f"[pass {pass_number}] {result}")
 
-    parser.add_argument("--temperature", type=float, default=0.7)
-    parser.add_argument("--upload_s3", default="")
-    parser.add_argument("--book", default=None)
 
-    args = parser.parse_args()
+def generate_dialogue_corpus(
+    chapters_dir,
+    output_dir,
+    voice_file,
+    endpoint,
+    api_key,
+    temperature=0.7,
+    upload_s3="",
+    book=None,
+    workers=5,
+):
+    client = build_client(endpoint, api_key)
 
-    client = build_client(args.endpoint, args.api_key)
+    voice_text = Path(voice_file).read_text()
+    voice_excerpt = voice_text
 
-    voice_text = Path(args.voice_file).read_text()
-    voice_excerpt = voice_text # " ".join(voice_text.split()[:400])
+    chapters = sorted(Path(chapters_dir).glob("*.txt"))
 
-    chapters = sorted(Path(args.chapters_dir).glob("*.txt"))
+    if book:
+        chapters = [Path(chapters_dir) / book]
 
-    if args.book:
-        chapters = [Path(args.chapters_dir)/args.book]
-
-    output_dir = Path(args.output_dir)
+    output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"Chapters: {len(chapters)}")
     print("Running generation passes...\n")
 
     run_pass(client, chapters, voice_excerpt, output_dir,
-             args.temperature, 1, args.upload_s3)
+             temperature, 1, upload_s3, workers)
 
     run_pass(client, chapters, voice_excerpt, output_dir,
-             args.temperature, 2, args.upload_s3)
+             temperature, 2, upload_s3, workers)
 
     print("\nGeneration complete.")
-
-if __name__ == "__main__":
-    main()

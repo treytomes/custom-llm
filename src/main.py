@@ -1,6 +1,7 @@
 # main.py
 
 import logging
+import os
 import typer
 
 from pathlib import Path
@@ -9,8 +10,7 @@ from transformers import AutoTokenizer
 from rich.live import Live
 from rich.table import Table
 from rich.panel import Panel
-from rich.console import Group
-import time
+from dotenv import load_dotenv
 
 import config
 from chat.infer import run_chat_repl
@@ -20,7 +20,9 @@ from train.data import (
     tokenize_corpus,
 )
 from train.train import run_training
+from corpus.transform_corpus import generate_dialogue_corpus
 
+load_dotenv()
 
 app = typer.Typer()
 
@@ -68,7 +70,7 @@ def generate_training_plan(
     logger.info("Total tokens          : %s", f"{total_tokens:,}")
     logger.info("Sequence length       : %d", seq_len)
     logger.info("Batch size            : %d", batch_size)
-    logger.info("Vocab size            : %d", vocab_size)
+    logger.info("Vocab size            : %s", vocab_size)
     logger.info("Tokens / step         : %s", f"{tokens_per_step:,}")
     logger.info("Training samples      : %s", f"{samples:,}")
     logger.info("Steps / epoch         : %s", f"{steps_per_epoch:,}")
@@ -249,6 +251,28 @@ def chat():
     Start interactive chat with the trained model.
     """
     run_chat_repl()
+
+
+@app.command()
+def corpus_generate_dialogue(
+    temperature: float = 0.7,
+    upload_s3: str = "",
+    book: str = None,
+):
+    """
+    Generate conversational training data using the teacher model.
+    """
+
+    generate_dialogue_corpus(
+        chapters_dir=config.CHAPTERS_DIR,
+        output_dir=config.DIALOGUE_OUTPUT_DIR,
+        voice_file=config.VOICE_FILE,
+        endpoint=os.environ.get("AZURE_MISTRAL_ENDPOINT"),
+        api_key=os.environ.get("AZURE_MISTRAL_KEY"),
+        temperature=temperature,
+        upload_s3=upload_s3,
+        book=book,
+    )
 
 
 # ---------------------------------------------------------

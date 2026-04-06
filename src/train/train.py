@@ -73,18 +73,23 @@ def save_checkpoint(out_dir, step, model, optimizer, scheduler, cfg):
 
 
 def try_resume_checkpoint(model, optimizer, scheduler, checkpoint_dir, device):
-
     latest = Path(checkpoint_dir) / "latest.pt"
 
     if not latest.exists():
         logger.info("No checkpoint found — starting fresh.")
         return 0
 
-    logger.info("Resuming from checkpoint: %d", latest)
+    logger.info("Resuming from checkpoint: %s", latest)
 
     ckpt = torch.load(latest, map_location=device)
 
-    model.load_state_dict(ckpt["model"])
+    state = ckpt["model"] if "model" in ckpt else ckpt
+
+    # Fix compiled-model checkpoints
+    if any(k.startswith("_orig_mod.") for k in state.keys()):
+        state = {k.replace("_orig_mod.", ""): v for k, v in state.items()}
+
+    model.load_state_dict(state)
     optimizer.load_state_dict(ckpt["optimizer"])
 
     if "scheduler" in ckpt:
@@ -204,7 +209,6 @@ def run_training():
         heads=config.MODEL_HEADS,
         max_seq=config.BLOCK_SIZE,
     ).to(device)
-    model = torch.compile(model)
 
     n_params = sum(p.numel() for p in model.parameters())
 
@@ -237,6 +241,7 @@ def run_training():
         checkpoint_dir,
         device,
     )
+    model = torch.compile(model)
 
     step = start_step
 

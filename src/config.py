@@ -13,7 +13,7 @@ MODEL_NAME     = "Scout"
 
 # The current max steps is 150,932 based on the corpus size.
 
-MAX_STEPS      = 1000
+MAX_STEPS      = 4000
 LEARNING_RATE  = 3e-4
 WARMUP_STEPS   = 100
 MIN_LR         = 3e-5
@@ -28,11 +28,10 @@ NUM_WORKERS    = os.cpu_count() // 2
 
 # Kept short intentionally — Scout's coherent window at 50M is ~3 sentences.
 # Increase as coherence improves with scale.
-MAX_NEW_TOKENS = 40
-
-TEMPERATURE    = 0.8
+MAX_NEW_TOKENS = 80
+TEMPERATURE    = 0.6   # Try raising this later in the training cycle.
 TOP_K          = 40
-REP_PENALTY    = 1.3   # 1.0 = disabled; 1.2–1.5 is a reasonable range
+REP_PENALTY    = 1.1   # 1.0 = disabled; 1.2–1.5 is a reasonable range
 
 #
 # Training Parameters
@@ -50,6 +49,10 @@ LOGGER_NAME         = "llm"
 OUTPUT_DIR          = "../data/corpus"
 CORPUS_DIR          = Path(OUTPUT_DIR) / "dialogue"
 CORPUS_TOKEN_FILE   = "corpus.pt"
+VOICE_FILE          = "../data/voice/scout_voice.txt"
+CHAPTERS_DIR        = "../data/corpus/chapters"
+DIALOGUE_OUTPUT_DIR = "../data/corpus/dialogue"
+
 
 DATA_PATH           = Path(OUTPUT_DIR) / CORPUS_TOKEN_FILE
 
@@ -64,3 +67,13 @@ BATCH_SIZE = 8
 MODEL_DIM   = 512
 MODEL_LAYERS = 12
 MODEL_HEADS  = 8
+
+
+#
+# Chat Logging
+#
+
+LOG_DIR = Path("../chat_logs")
+LOG_DIR.mkdir(exist_ok=True)
+
+LOG_FILE = LOG_DIR / "chat.jsonl"

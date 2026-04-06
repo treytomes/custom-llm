@@ -1,5 +1,8 @@
+import json
 import torch
+from datetime import datetime
 from transformers import AutoTokenizer
+from pathlib import Path
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt
@@ -10,6 +13,21 @@ from train.model import GPT
 import config
 
 console = Console()
+
+# ── Chat logging ─────────────────────────────────────────────────────────────
+
+def log_chat(prompt, response):
+
+    entry = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "user": config.USER_NAME,
+        "model": config.MODEL_NAME,
+        "prompt": prompt,
+        "response": response,
+    }
+
+    with open(config.LOG_FILE, "a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
 # ── Model Loading ─────────────────────────────────────────────────────────────
@@ -29,6 +47,10 @@ def load_model(checkpoint_path, device):
     ).to(device)
 
     state = checkpoint["model"] if "model" in checkpoint else checkpoint
+
+    # Fix compiled-model checkpoints
+    if any(k.startswith("_orig_mod.") for k in state.keys()):
+        state = {k.replace("_orig_mod.", ""): v for k, v in state.items()}
 
     model.load_state_dict(state)
 
@@ -85,6 +107,43 @@ def generate(model, tokenizer, prompt, device):
     return tokenizer.decode(tokens[0], skip_special_tokens=True)
 
 
+def stream_generate(model, tokenizer, prompt, device):
+
+    tokens = tokenizer.encode(prompt, return_tensors="pt").to(device)
+    eos_id = tokenizer.eos_token_id
+
+    generated = []
+
+    for _ in range(config.MAX_NEW_TOKENS):
+        tokens = tokens[:, -config.BLOCK_SIZE:]
+
+        with torch.no_grad():
+            logits = model(tokens)
+
+        logits = logits[:, -1, :]
+
+        next_token = sample_next(
+            logits,
+            generated_tokens=tokens[0],
+            rep_penalty=config.REP_PENALTY,
+        )
+
+        tokens = torch.cat([tokens, next_token], dim=1)
+
+        tok_id = next_token.item()
+
+        if eos_id is not None and tok_id == eos_id:
+            break
+
+        piece = tokenizer.decode([tok_id], skip_special_tokens=True)
+
+        generated.append(piece)
+
+        yield piece
+
+    return "".join(generated)
+
+
 # ── Prompt formatting ─────────────────────────────────────────────────────────
 
 def format_prompt(text: str) -> str:
@@ -94,8 +153,9 @@ def format_prompt(text: str) -> str:
 # ── Chat REPL (called from main.py) ───────────────────────────────────────────
 
 def run_chat_repl():
-
     device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    console.print(f"[dim]Session log: {config.LOG_FILE}[/dim]\n")
 
     console.print()
     console.print(Panel.fit(
@@ -112,11 +172,8 @@ def run_chat_repl():
     console.print("[green]Model loaded.[/green]\n")
 
     try:
-
         while True:
-
             user_text = Prompt.ask(f"[bold blue]{config.USER_NAME}[/bold blue]")
-
             if not user_text.strip():
                 continue
 
@@ -124,17 +181,14 @@ def run_chat_repl():
 
             spinner = Spinner("dots", text="Generating...")
 
+            response_chunks = []
             with Live(spinner, console=console, refresh_per_second=10):
+                for piece in stream_generate(model, tokenizer, prompt, device):
+                    response_chunks.append(piece)
 
-                output = generate(
-                    model,
-                    tokenizer,
-                    prompt,
-                    device
-                )
+            output = " ".join(response_chunks)
 
             console.print()
-
             console.print(
                 Panel(
                     output,
@@ -142,8 +196,9 @@ def run_chat_repl():
                     border_style="green"
                 )
             )
-
             console.print()
+
+            log_chat(user_text, output)
 
     except KeyboardInterrupt:
 
