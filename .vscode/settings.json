@@ -4,6 +4,7 @@
 	"editor.defaultFormatter": "ms-python.python",
 	"editor.formatOnPaste": true,
 	"cSpell.words": [
+		"accum",
 		"Dispreferred",
 		"dotenv",
 		"GELU",
