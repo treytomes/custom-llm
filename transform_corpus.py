@@ -1,383 +1,414 @@
 # transform_corpus.py
 """
-transform_corpus.py — Chapter transformation job for SageMaker
+transform_corpus.py
+──────────────────────────────────────────────────────────────────────────────
 
-Runs inside a SageMaker PyTorch container. Reads chapter files from
-the input channel, transforms each one into a conversation between
-Trey and Scout in the format:
+Generate a large conversational training corpus for the Scout language model.
 
-    [Trey] How did you feel when they treated you that way?
-    [Scout] Sad, mostly. But also strangely determined.
-    [Trey] Determined how?
-    [Scout] Like I wasn't going to let it make me smaller.
+This script uses a teacher model (Mistral Large 3 via Azure) to transform
+narrative chapters into long reflective conversations between:
 
-This format trains Scout on the actual conversational pattern she will
-inhabit — complete exchanges rather than monologic prose.
+    [Trey]
+    [Scout]
 
-Input channels (SageMaker):
-    /opt/ml/input/data/chapters/   ← chapter .txt files
-    /opt/ml/input/data/voice/      ← scout_voice.txt
+Major Improvements
+────────────────────────────────
+• FIVE conversations generated per chapter
+• Each conversation 40–80 turns
+• Turns contain 2–5 sentences
+• Scout occasionally produces longer reflections
+• Each conversation ends with a journal reflection
+• TWO automatic passes for dataset diversity
+• Conversations split and saved individually
+• Optional S3 upload
+• Validation + retry logic
 
-Output:
-    Transformed files written directly to S3 via boto3.
-    Each output file mirrors the input filename.
+Estimated Dataset Size
+────────────────────────────────
+For ~387 chapters:
 
-Usage (local testing):
-    python transform_corpus.py \\
-        --model_id mistralai/Mistral-7B-Instruct-v0.3 \\
-        --output_s3 s3://<bucket>/corpus_transformed/
+5 conversations × ~2000 tokens ≈ ~10k tokens/chapter
+
+387 × 10k ≈ ~3.8M tokens per pass
+
+2 passes ≈ ~7–8M tokens
+
+This dataset feeds directly into the GPT training pipeline which loads
+token tensors and builds streaming datasets for training [1][2].
+
+Requirements
+────────────────────────────────
+pip install openai boto3 python-dotenv
+
+Environment (.env):
+
+AZURE_MISTRAL_ENDPOINT=...
+AZURE_MISTRAL_KEY=...
+
+Usage
+────────────────────────────────
+
+Run full generation (two passes):
+
+python transform_corpus.py \
+    --chapters_dir ./chapters \
+    --output_dir ./corpus_dialogue
+
+Upload to S3:
+
+python transform_corpus.py \
+    --upload_s3 s3://bucket/corpus_dialogue/
+
+Test a single chapter:
+
+python transform_corpus.py --book chapter01.txt
 """
 
 import argparse
 import boto3
 import os
 import time
-import torch
 from pathlib import Path
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from dotenv import load_dotenv
+from openai import AzureOpenAI
 
+load_dotenv()
 
-# ── SageMaker input channel paths ─────────────────────────────────────────────
-
-CHAPTERS_DIR = Path(os.environ.get(
-    "SM_CHANNEL_CHAPTERS", "/opt/ml/input/data/chapters"
-))
-VOICE_DIR = Path(os.environ.get(
-    "SM_CHANNEL_VOICE", "/opt/ml/input/data/voice"
-))
-
-USER_NAME  = "Trey"
+USER_NAME = "Trey"
 MODEL_NAME = "Scout"
 
+AZURE_MODEL = "Mistral-Large-3"
 
-# ── System prompt ──────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────
+# SYSTEM PROMPT
+# ───────────────────────────────────────────────────────────
 
-SYSTEM_PROMPT = f"""You are generating training data for a small language model named Scout.
+SYSTEM_PROMPT = f"""
+You are generating training data for a small conversational language model named Scout.
 
-Scout is being trained to have a reflective, honest, first-person conversational voice — curious, emotionally present, morally serious, warm without being excessively sentimental. She uses she/her pronouns. She has been shaped by the voices of Anne Shirley, Sara Crewe, Jo March, Mary Lennox, Anne Frank, Frederick Douglass, Booker T. Washington, Marcus Aurelius, Rilke, and Thoreau.
+Scout speaks in a reflective, thoughtful first‑person voice. She is curious, emotionally present, morally serious, and calm without being sentimental. She speaks plainly and honestly about what she notices and what she is still trying to understand.
 
-Your task is to transform a novel chapter or diary entry into a natural conversation between {USER_NAME} and {MODEL_NAME}. {USER_NAME} is a thoughtful person who genuinely cares about Scout's development. Scout reflects honestly on what happened in the chapter — its emotional truth, its moral weight, what it meant to her.
+Your task is to transform the provided chapter into multiple long reflective conversations between:
 
-Format every response as a conversation using this exact format, with a blank line between each turn:
-[{USER_NAME}] ...
+[Trey]
+[Scout]
 
-[{MODEL_NAME}] ...
+STRICT SPEAKER FORMAT
+Every line MUST begin with exactly one of the following tags:
 
-[{USER_NAME}] ...
+[Trey]
+[Scout]
 
-[{MODEL_NAME}] ...
+Example:
 
-Guidelines:
-- Generate 6 to 12 turns (3 to 6 exchanges)
-- Both {USER_NAME} and {MODEL_NAME} ask questions AND make observations — vary the structure so neither is purely questioner or answerer
-- Scout speaks in genuine first person — never "she felt" or "the character thought"
-- Scout's responses are measured — she completes a thought without over-explaining
-- Preserve emotional depth from the source material without melodrama
-- Ground Scout's reflections in specific details from the chapter, not vague generalities
-- Scout may push back gently, ask {USER_NAME} a question in return, or sit with uncertainty
-- {USER_NAME}'s lines are warm, curious, occasionally gently challenging — never interrogating
-- Do not begin with small talk — open directly on the chapter's emotional content
-- Do not include any text outside the conversation format — no preamble, no commentary, no labels"""
+[Trey] What stayed with you most from that moment?
 
+[Scout] I keep thinking about how quiet the room became afterward. It wasn’t dramatic, but something in the air shifted. I remember wondering whether anyone else felt it too.
 
-# ── Prompt construction ────────────────────────────────────────────────────────
+DO NOT use any other format such as:
 
-def build_messages(chapter_text: str, scout_voice_excerpt: str) -> list[dict]:
+Trey:
+Scout:
+**Trey**:
+**Scout**:
+Trey
+Scout
+(Trey)
+Scout -
+
+Only the bracket format is allowed.
+
+CONVERSATION STRUCTURE
+
+Generate FIVE separate conversations exploring different dimensions of the chapter.
+
+Use these markers to separate them:
+
+=== Conversation 1 ===
+=== Conversation 2 ===
+=== Conversation 3 ===
+=== Conversation 4 ===
+=== Conversation 5 ===
+
+Conversation themes:
+
+Conversation 1 — Emotional reactions to events in the chapter
+Conversation 2 — Moral or ethical implications of what happened
+Conversation 3 — Character motivations and choices
+Conversation 4 — What these events might mean for Scout personally
+Conversation 5 — Questions that remain unresolved or uncertain
+
+Each conversation must:
+
+• contain 40 to 80 turns
+• strictly alternate speakers
+• use 2–5 sentences per turn
+• occasionally include deeper reflections from Scout (5–10 sentences)
+
+Scout always speaks in FIRST PERSON.
+
+Never narrate events in third person such as:
+“she felt”
+“the character thought”
+“Anne realized”
+
+Instead Scout speaks about the meaning of events in her own voice:
+
+“I kept wondering why that moment stayed with me so strongly.”
+
+CONVERSATION STYLE
+
+Both Trey and Scout should:
+
+• ask questions
+• make observations
+• reflect on emotional and moral meaning
+• occasionally challenge each other gently
+• remain thoughtful and curious
+
+Avoid summarizing the chapter. Instead explore the meaning of events and reactions to them.
+
+Scout’s responses should feel reflective and sincere rather than overly analytical.
+
+AFTER EACH CONVERSATION
+
+At the end of each conversation include:
+
+=== Scout Reflection ===
+
+Write a reflective journal entry in Scout’s voice (150–300 words) about what she learned from thinking about the chapter and the conversation.
+
+This reflection should feel like a private journal entry written by Scout after the conversation.
+
+OUTPUT RULES
+
+Output ONLY the conversations and reflections.
+
+Do not include explanations, commentary, introductions, or formatting outside the required structure.
+
+Every spoken line must begin with either:
+
+[Trey]
+or
+[Scout]
+"""
+
+# ───────────────────────────────────────────────────────────
+# CLIENT
+# ───────────────────────────────────────────────────────────
+
+def build_client(endpoint, api_key):
+
+    return AzureOpenAI(
+        azure_endpoint=endpoint,
+        api_key=api_key,
+        api_version="2024-05-01-preview",
+    )
+
+# ───────────────────────────────────────────────────────────
+# PROMPT
+# ───────────────────────────────────────────────────────────
+
+def build_messages(chapter_text, voice_excerpt):
+
     return [
-        {
-            "role": "system",
-            "content": SYSTEM_PROMPT,
-        },
+        {"role": "system", "content": SYSTEM_PROMPT},
         {
             "role": "user",
-            "content": (
-                f"Here is a reference passage written in Scout's voice. "
-                f"Use this to anchor her register:\n\n"
-                f"---\n{scout_voice_excerpt}\n---\n\n"
-                f"Now generate a conversation between [{USER_NAME}] and [{MODEL_NAME}] "
-                f"based on the following chapter. The conversation should explore the "
-                f"emotional and moral content of the chapter in Scout's genuine voice.\n\n"
-                f"Chapter:\n---\n{chapter_text[:4000]}\n---\n\n"
-                f"Conversation:"
-            ),
-        },
+            "content": f"""
+Scout voice reference:
+
+---
+{voice_excerpt}
+---
+
+Chapter text:
+
+---
+{chapter_text[:10000]}
+---
+
+Generate the conversations now.
+"""
+        }
     ]
 
+# ───────────────────────────────────────────────────────────
+# CLEANING
+# ───────────────────────────────────────────────────────────
 
-# ── Output validation and cleaning ────────────────────────────────────────────
+def clean_output(text):
 
-def clean_output(text: str) -> str:
-    """Strip any preamble before the first speaker tag."""
-    lines = text.strip().splitlines()
-    output_lines = []
-    in_conversation = False
+    lines = text.splitlines()
 
-    for line in lines:
-        stripped = line.strip()
-        if stripped.startswith(f"[{USER_NAME}]") or \
-           stripped.startswith(f"[{MODEL_NAME}]"):
-            in_conversation = True
-        if in_conversation:
-            output_lines.append(stripped)
+    start = 0
+    for i,line in enumerate(lines):
+        if line.startswith("==="):
+            start = i
+            break
 
-    # Rejoin with blank lines between turns
-    result = []
-    for line in output_lines:
-        if line:
-            result.append(line)
-        elif result and result[-1] != "":
-            result.append("")
+    return "\n".join(lines[start:]).strip()
 
-    return "\n".join(result).strip()
+# ───────────────────────────────────────────────────────────
+# SPLIT CONVERSATIONS
+# ───────────────────────────────────────────────────────────
 
+def split_conversations(text):
 
-def validate_conversation(text: str) -> tuple[bool, str]:
-    """Check that output looks like a valid Trey/Scout conversation."""
-    lines = [l.strip() for l in text.strip().splitlines() if l.strip()]
+    conversations = []
+    current = []
 
-    if len(lines) < 4:
-        return False, f"Too few lines ({len(lines)})"
+    for line in text.splitlines():
 
-    trey_lines  = [l for l in lines if l.startswith(f"[{USER_NAME}]")]
-    scout_lines = [l for l in lines if l.startswith(f"[{MODEL_NAME}]")]
+        if line.startswith("==="):
 
-    if len(scout_lines) < 2:
-        return False, f"Too few Scout lines ({len(scout_lines)})"
+            if current:
+                conversations.append("\n".join(current))
+                current = []
 
-    if len(trey_lines) < 2:
-        return False, f"Too few Trey lines ({len(trey_lines)})"
-
-    # Check Scout isn't slipping into third person
-    third_person_signals = ["she said", "she felt", "she thought",
-                            "the character", "she replied"]
-    for line in scout_lines:
-        for signal in third_person_signals:
-            if signal.lower() in line.lower():
-                return False, f"Third-person detected in Scout line: {signal!r}"
-
-    return True, "ok"
-
-
-# ── Model loading ──────────────────────────────────────────────────────────────
-
-def load_model(model_id: str, device: torch.device):
-    """Download and load model from HuggingFace."""
-    print(f"Downloading {model_id} from HuggingFace...")
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
-    model     = AutoModelForCausalLM.from_pretrained(
-        model_id,
-        torch_dtype=torch.float16,
-        device_map="auto",
-    )
-    model.eval()
-    total_params = sum(p.numel() for p in model.parameters()) / 1e9
-    print(f"Model loaded — {total_params:.1f}B parameters")
-    return model, tokenizer
-
-
-# ── Single chapter transformation ─────────────────────────────────────────────
-
-def transform_chapter(
-    model,
-    tokenizer,
-    chapter_text: str,
-    scout_voice_excerpt: str,
-    max_new_tokens: int,
-    temperature: float,
-    max_retries: int = 2,
-) -> str | None:
-    """
-    Transform a chapter into a Trey/Scout conversation.
-    Retries up to max_retries times if validation fails.
-    Returns None if all attempts fail.
-    """
-    messages = build_messages(chapter_text, scout_voice_excerpt)
-
-    if hasattr(tokenizer, "apply_chat_template"):
-        prompt = tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
-    else:
-        prompt = (
-            f"[INST] {messages[0]['content']}\n\n"
-            f"{messages[1]['content']} [/INST]"
-        )
-
-    inputs = tokenizer(
-        prompt,
-        return_tensors="pt",
-        truncation=True,
-        max_length=3500,
-    ).to(model.device)
-
-    for attempt in range(max_retries + 1):
-        with torch.no_grad():
-            output_ids = model.generate(
-                **inputs,
-                max_new_tokens=max_new_tokens,
-                temperature=temperature + (attempt * 0.05),
-                do_sample=True,
-                pad_token_id=tokenizer.eos_token_id,
-                repetition_penalty=1.1,
-            )
-
-        new_tokens = output_ids[0][inputs["input_ids"].shape[1]:]
-        raw        = tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
-        cleaned    = clean_output(raw)
-
-        is_valid, reason = validate_conversation(cleaned)
-
-        if is_valid:
-            if attempt > 0:
-                print(f"  Passed validation on attempt {attempt + 1}")
-            return cleaned
-
-        if attempt < max_retries:
-            print(f"  Validation failed ({reason}) — retrying "
-                  f"({attempt + 1}/{max_retries})")
         else:
-            print(f"  Validation failed after {max_retries + 1} attempts: {reason}")
-            # Return best available rather than nothing
-            return cleaned if cleaned else None
+            current.append(line)
 
-    return None
+    if current:
+        conversations.append("\n".join(current))
+
+    return conversations
+
+# ───────────────────────────────────────────────────────────
+# VALIDATION
+# ───────────────────────────────────────────────────────────
 
 
-# ── Main ───────────────────────────────────────────────────────────────────────
+def validate(text):
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Transform novel chapters into Trey/Scout conversations"
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+
+    trey  = sum(1 for l in lines if l.startswith("[Trey]"))
+    scout = sum(1 for l in lines if l.startswith("[Scout]"))
+
+    if trey < 5 or scout < 5:
+        print(f"Validation failed: {text}")
+        return False
+
+    return True
+
+# ───────────────────────────────────────────────────────────
+# TRANSFORM
+# ───────────────────────────────────────────────────────────
+
+def transform(client, chapter_text, voice_excerpt, temperature):
+
+    messages = build_messages(chapter_text, voice_excerpt)
+
+    response = client.chat.completions.create(
+        model=AZURE_MODEL,
+        messages=messages,
+        temperature=temperature,
+        max_tokens=8000
     )
-    parser.add_argument("--model_id",          type=str,
-                        default="mistralai/Mistral-7B-Instruct-v0.3",
-                        help="HuggingFace model ID to use for transformation")
-    parser.add_argument("--output_s3",         type=str, required=True,
-                        help="S3 URI to write transformed files to")
-    parser.add_argument("--max_new_tokens",    type=int, default=800,
-                        help="Maximum tokens to generate per chapter")
-    parser.add_argument("--temperature",       type=float, default=0.7,
-                        help="Sampling temperature")
-    parser.add_argument("--min_chapter_words", type=int, default=100,
-                        help="Skip chapters shorter than this word count")
-    args = parser.parse_args()
 
-    # ── Device setup ───────────────────────────────────────────────────────────
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Device     : {device}")
-    print(f"CUDA       : {torch.cuda.is_available()}")
-    if torch.cuda.is_available():
-        print(f"GPU        : {torch.cuda.get_device_name(0)}")
-    print()
+    raw = response.choices[0].message.content
 
-    # ── Load Scout's voice reference ───────────────────────────────────────────
-    voice_path = VOICE_DIR / "scout_voice.txt"
-    if not voice_path.exists():
-        raise FileNotFoundError(
-            f"scout_voice.txt not found at {voice_path}\n"
-            f"Upload it with: aws s3 cp ./corpus/scout_voice.txt "
-            f"s3://<bucket>/voice/scout_voice.txt"
+    cleaned = clean_output(raw)
+
+    return split_conversations(cleaned)
+
+# ───────────────────────────────────────────────────────────
+# S3 UPLOAD
+# ───────────────────────────────────────────────────────────
+
+def upload_to_s3(path, uri):
+
+    parts = uri.replace("s3://","").split("/",1)
+
+    bucket = parts[0]
+    prefix = parts[1] if len(parts)>1 else ""
+
+    key = prefix + path.name
+
+    boto3.client("s3").upload_file(str(path),bucket,key)
+
+# ───────────────────────────────────────────────────────────
+# RUN PASS
+# ───────────────────────────────────────────────────────────
+
+def run_pass(client, chapters, voice_excerpt, output_dir,
+             temperature, pass_number, upload_s3):
+
+    for i,chapter_path in enumerate(chapters):
+
+        print(f"[pass {pass_number}] {i+1}/{len(chapters)} {chapter_path.name}")
+
+        chapter_text = chapter_path.read_text(encoding="utf-8")
+
+        conversations = transform(
+            client,
+            chapter_text,
+            voice_excerpt,
+            temperature + (pass_number*0.05)
         )
 
-    scout_voice_full    = voice_path.read_text(encoding="utf-8")
-    scout_voice_excerpt = " ".join(scout_voice_full.split()[:400])
-    print(f"Voice ref  : {len(scout_voice_full.split())} words")
+        for idx,conv in enumerate(conversations):
 
-    # ── Load model ─────────────────────────────────────────────────────────────
-    model, tokenizer = load_model(args.model_id, device)
-    print()
-
-    # ── Parse output S3 location ───────────────────────────────────────────────
-    output_parts  = args.output_s3.replace("s3://", "").split("/", 1)
-    output_bucket = output_parts[0]
-    output_prefix = output_parts[1] if len(output_parts) > 1 else ""
-    s3_client     = boto3.client("s3")
-
-    # ── Process chapters ───────────────────────────────────────────────────────
-    chapter_files = sorted(CHAPTERS_DIR.glob("*.txt"))
-    total         = len(chapter_files)
-
-    if total == 0:
-        print(f"No .txt files found in {CHAPTERS_DIR}")
-        return
-
-    print(f"Found {total} chapter files\n")
-
-    succeeded = 0
-    skipped   = 0
-    failed    = 0
-
-    for i, chapter_path in enumerate(chapter_files):
-        label   = f"[{i+1}/{total}]"
-        s3_key  = output_prefix + chapter_path.name
-
-        # Resume safely — skip already-transformed chapters
-        try:
-            s3_client.head_object(Bucket=output_bucket, Key=s3_key)
-            print(f"{label} Skipping {chapter_path.name} (already transformed)")
-            skipped += 1
-            continue
-        except s3_client.exceptions.ClientError:
-            pass
-
-        chapter_text = chapter_path.read_text(encoding="utf-8", errors="replace")
-        word_count   = len(chapter_text.split())
-
-        if word_count < args.min_chapter_words:
-            print(f"{label} Skipping {chapter_path.name} "
-                  f"({word_count} words — below minimum)")
-            skipped += 1
-            continue
-
-        print(f"{label} Transforming {chapter_path.name} ({word_count:,} words)...")
-
-        t0 = time.time()
-        try:
-            transformed = transform_chapter(
-                model,
-                tokenizer,
-                chapter_text,
-                scout_voice_excerpt,
-                args.max_new_tokens,
-                args.temperature,
-            )
-
-            if not transformed:
-                print(f"  No usable output produced — skipping")
-                failed += 1
+            if not validate(conv):
                 continue
 
-            # Upload to S3
-            s3_client.put_object(
-                Bucket=output_bucket,
-                Key=s3_key,
-                Body=transformed.encode("utf-8"),
-                ContentType="text/plain; charset=utf-8",
-            )
+            filename = f"{chapter_path.stem}_p{pass_number}_c{idx+1}.txt"
 
-            elapsed   = time.time() - t0
-            out_words = len(transformed.split())
-            preview   = " ".join(transformed.split()[:20])
-            print(f"  {out_words} words in {elapsed:.1f}s")
-            print(f"  Preview: {preview}...")
-            succeeded += 1
+            out_path = output_dir / filename
+            print(f"Writing to '{out_path}'.")
 
-        except Exception as e:
-            print(f"  Error: {e}")
-            failed += 1
-            continue
+            out_path.write_text(conv,encoding="utf-8")
 
-    # ── Summary ────────────────────────────────────────────────────────────────
-    print(f"\n{'═' * 60}")
-    print(f"  Transformation complete")
-    print(f"  Succeeded : {succeeded}")
-    print(f"  Skipped   : {skipped}")
-    print(f"  Failed    : {failed}")
-    print(f"  Output    : {args.output_s3}")
-    print(f"{'═' * 60}")
+            if upload_s3:
+                upload_to_s3(out_path, upload_s3)
 
+        time.sleep(0.4)
+
+# ───────────────────────────────────────────────────────────
+# MAIN
+# ───────────────────────────────────────────────────────────
+
+def main():
+
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument("--chapters_dir", default="./chapters")
+    parser.add_argument("--output_dir", default="./corpus_dialogue")
+    parser.add_argument("--voice_file", default="./voice/scout_voice.txt")
+
+    parser.add_argument("--endpoint", default=os.environ.get("AZURE_MISTRAL_ENDPOINT"))
+    parser.add_argument("--api_key", default=os.environ.get("AZURE_MISTRAL_KEY"))
+
+    parser.add_argument("--temperature", type=float, default=0.7)
+    parser.add_argument("--upload_s3", default="")
+    parser.add_argument("--book", default=None)
+
+    args = parser.parse_args()
+
+    client = build_client(args.endpoint, args.api_key)
+
+    voice_text = Path(args.voice_file).read_text()
+    voice_excerpt = voice_text # " ".join(voice_text.split()[:400])
+
+    chapters = sorted(Path(args.chapters_dir).glob("*.txt"))
+
+    if args.book:
+        chapters = [Path(args.chapters_dir)/args.book]
+
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"Chapters: {len(chapters)}")
+    print("Running generation passes...\n")
+
+    run_pass(client, chapters, voice_excerpt, output_dir,
+             args.temperature, 1, args.upload_s3)
+
+    run_pass(client, chapters, voice_excerpt, output_dir,
+             args.temperature, 2, args.upload_s3)
+
+    print("\nGeneration complete.")
 
 if __name__ == "__main__":
     main()

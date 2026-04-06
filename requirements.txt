@@ -6,3 +6,4 @@ accelerate
 safetensors
 tokenizers
 openai
+python-dotenv
