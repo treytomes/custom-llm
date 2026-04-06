@@ -52,8 +52,8 @@ project/
 from pathlib import Path
 import argparse
 
-from training.data import tokenize_corpus
-from training.train import main as train_main
+from train.data import tokenize_corpus
+from train.train import main as train_main
 from transformers import AutoTokenizer
 
 

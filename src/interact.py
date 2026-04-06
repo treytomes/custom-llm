@@ -19,9 +19,9 @@ from datetime import datetime
 import torch
 from transformers import AutoTokenizer
 
-from training.model import GPT
-from training.config import DEFAULT_CONFIG
-from infer import sample_next
+from train.model import GPT
+from train.config import DEFAULT_CONFIG
+from src.chat.infer import sample_next
 
 from config import *
 

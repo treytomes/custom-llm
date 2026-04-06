@@ -1,15 +1,15 @@
 """
 train.py — Train a small GPT-style language model (Scout)
 
-Changes from previous version
-──────────────────────────────
-• Linear warmup → cosine decay LR schedule (properly wired)
+Features
+────────────────────────────────────────────────────
+• Standard AutoTokenizer — no vocabulary patching required
+• Linear warmup → cosine decay LR schedule
 • Scheduler state saved and restored in checkpoints
-• [Trey] turn masking — loss computed on [Scout] tokens only
-• config.py values used as authoritative defaults throughout
-• batch_size, block_size, max_steps consistent with config
-• Gradient accumulation support for effective large batch sizes
+• config.py values as authoritative defaults
+• Gradient accumulation for effective large batch sizes
 • Validation loss logged against held-out token file if present
+• SageMaker integration with S3 checkpoint sync
 """
 
 import boto3
@@ -55,87 +55,17 @@ def upload_checkpoint(s3, bucket, prefix, file_path):
 
 
 # ─────────────────────────────────────────────────────────────
-# Trey-turn masking
-# ─────────────────────────────────────────────────────────────
-
-def build_scout_mask(input_ids: torch.Tensor, trey_id: int, scout_id: int) -> torch.Tensor:
-    """
-    Build a boolean mask that is True only for tokens that are part
-    of a [Scout] turn. [Trey] turns are masked out so they do not
-    contribute to the training loss.
-
-    Assumes alternating turn structure:
-        [Trey]  ... tokens ...
-        [Scout] ... tokens ...
-
-    Args:
-        input_ids : (batch, seq_len) token tensor
-        trey_id   : token ID for the [Trey] speaker tag
-        scout_id  : token ID for the [Scout] speaker tag
-
-    Returns:
-        mask : (batch, seq_len) bool tensor
-                True  → include this token in loss
-                False → mask this token out
-    """
-    batch_size, seq_len = input_ids.shape
-    mask = torch.zeros_like(input_ids, dtype=torch.bool)
-
-    for b in range(batch_size):
-        in_scout_turn = False
-        for t in range(seq_len):
-            token = input_ids[b, t].item()
-            if token == scout_id:
-                in_scout_turn = True
-            elif token == trey_id:
-                in_scout_turn = False
-            if in_scout_turn:
-                mask[b, t] = True
-
-    return mask
-
-
-def masked_cross_entropy(
-    logits: torch.Tensor,
-    labels: torch.Tensor,
-    mask:   torch.Tensor,
-) -> torch.Tensor:
-    """
-    Cross-entropy loss over Scout tokens only.
-
-    Args:
-        logits : (batch, seq_len, vocab_size)
-        labels : (batch, seq_len)
-        mask   : (batch, seq_len) bool — True where loss should be computed
-
-    Returns:
-        Scalar loss tensor. Returns full cross-entropy if no Scout tokens
-        are present in the batch (guards against empty-mask edge case).
-    """
-    # Shift for next-token prediction
-    shift_logits = logits[:, :-1, :].contiguous()
-    shift_labels = labels[:, 1:].contiguous()
-    shift_mask   = mask[:, 1:].contiguous()
-
-    flat_logits = shift_logits.view(-1, shift_logits.size(-1))
-    flat_labels = shift_labels.view(-1)
-    flat_mask   = shift_mask.view(-1)
-
-    if flat_mask.sum() == 0:
-        # No Scout tokens in this batch — fall back to full loss
-        return F.cross_entropy(flat_logits, flat_labels)
-
-    loss = F.cross_entropy(flat_logits, flat_labels, reduction="none")
-    return (loss * flat_mask.float()).sum() / flat_mask.float().sum()
-
-
-# ─────────────────────────────────────────────────────────────
 # Scheduler
 # ─────────────────────────────────────────────────────────────
 
-def build_scheduler(optimizer, total_steps: int, warmup_steps: int, min_lr: float, base_lr: float):
+def build_scheduler(
+    optimizer,
+    total_steps:  int,
+    warmup_steps: int,
+    min_lr:       float,
+):
     """
-    Linear warmup followed by cosine decay to min_lr.
+    Linear warmup for warmup_steps, then cosine decay to min_lr.
     """
     warmup = LambdaLR(
         optimizer,
@@ -159,9 +89,12 @@ def build_scheduler(optimizer, total_steps: int, warmup_steps: int, min_lr: floa
 # Checkpointing
 # ─────────────────────────────────────────────────────────────
 
-def save_checkpoint(out_dir, step, model, optimizer, scheduler, cfg, s3=None, s3_bucket=None, s3_prefix="checkpoints"):
-    out_dir = Path(out_dir)
-    ckpt_path  = out_dir / f"model_{step}.pt"
+def save_checkpoint(
+    out_dir, step, model, optimizer, scheduler, cfg,
+    s3=None, s3_bucket=None, s3_prefix="checkpoints",
+):
+    out_dir     = Path(out_dir)
+    ckpt_path   = out_dir / f"model_{step}.pt"
     latest_path = out_dir / "latest.pt"
 
     checkpoint = {
@@ -228,10 +161,12 @@ def corpus_needs_tokenization(corpus_dir, token_file):
 # ─────────────────────────────────────────────────────────────
 
 @torch.no_grad()
-def validation_loss(model, val_tokens, cfg, device, trey_id, scout_id, speaker_masking, num_batches=20):
+def validation_loss(model, val_tokens, cfg, device, num_batches=20):
     """
     Estimate loss on held-out validation tokens.
-    Uses the same Scout-only masking as training.
+
+    Place tokenized held-out conversations in data/corpus_val.pt
+    to enable. Logs every log_interval * 10 steps during training.
     """
     model.eval()
 
@@ -249,20 +184,14 @@ def validation_loss(model, val_tokens, cfg, device, trey_id, scout_id, speaker_m
         if count >= num_batches:
             break
 
-        x = batch["input_ids"].to(device)
-        y = batch["labels"].to(device)
-
+        x      = batch["input_ids"].to(device)
+        y      = batch["labels"].to(device)
         logits = model(x)
-        if speaker_masking:
-            mask = build_scout_mask(x, trey_id, scout_id).to(device)
-            loss = masked_cross_entropy(logits, y, mask)
-        else:
-            shift_logits = logits[:, :-1, :].contiguous()
-            shift_labels = y[:, 1:].contiguous()
-            loss = F.cross_entropy(
-                shift_logits.view(-1, shift_logits.size(-1)),
-                shift_labels.view(-1)
-            )
+
+        loss = F.cross_entropy(
+            logits.view(-1, logits.size(-1)),
+            y.view(-1),
+        )
 
         total_loss += loss.item()
         count      += 1
@@ -272,28 +201,28 @@ def validation_loss(model, val_tokens, cfg, device, trey_id, scout_id, speaker_m
 
 
 # ─────────────────────────────────────────────────────────────
-# Main training loop
+# Main
 # ─────────────────────────────────────────────────────────────
 
 def main(args):
-    args    = detect_sagemaker_paths(args)
-    use_s3  = running_in_sagemaker() and args.s3_bucket is not None
-    s3      = boto3.client("s3") if use_s3 else None
+    args   = detect_sagemaker_paths(args)
+    use_s3 = running_in_sagemaker() and args.s3_bucket is not None
+    s3     = boto3.client("s3") if use_s3 else None
 
-    device  = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
 
     # ── Paths ────────────────────────────────────────────────
-    corpus_dir = Path(args.corpus_dir)
-    token_file = Path(args.data_path)
-    token_file.parent.mkdir(parents=True, exist_ok=True)
-
+    corpus_dir     = Path(args.corpus_dir)
+    token_file     = Path(args.data_path)
     val_token_file = token_file.parent / "corpus_val.pt"
+
+    token_file.parent.mkdir(parents=True, exist_ok=True)
 
     # ── Config ───────────────────────────────────────────────
     cfg = DEFAULT_CONFIG.copy()
 
-    # Allow launcher overrides
+    # Launcher overrides take precedence over config defaults
     cfg["batch_size"]    = getattr(args, "batch_size",    cfg["batch_size"])
     cfg["block_size"]    = getattr(args, "seq_len",       cfg["block_size"])
     cfg["max_steps"]     = getattr(args, "steps",         cfg["max_steps"])
@@ -306,33 +235,9 @@ def main(args):
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
     cfg = update_vocab_size(cfg, tokenizer)
 
-    # Resolve speaker tag token IDs for masking
-    trey_id = None
-    scout_id = None
-
-    if args.speaker_masking:
-        trey_id  = tokenizer.convert_tokens_to_ids("[Trey]")
-        scout_id = tokenizer.convert_tokens_to_ids("[Scout]")
-
-        if trey_id == tokenizer.unk_token_id or scout_id == tokenizer.unk_token_id:
-            print("Warning: [Trey] or [Scout] not found in tokenizer vocabulary.")
-            print("Speaker masking disabled.")
-            args.speaker_masking = False
-        else:
-            print(f"Speaker tokens — [Trey]: {trey_id}  [Scout]: {scout_id}")
-    else:
-        print("Speaker masking disabled.")
-
-    if trey_id == tokenizer.unk_token_id or scout_id == tokenizer.unk_token_id:
-        print("Warning: [Trey] or [Scout] not found in tokenizer vocabulary.")
-        print("  Trey-turn masking will fall back to full loss.")
-        print("  Consider adding these as special tokens before training.")
-    else:
-        print(f"Speaker tokens — [Trey]: {trey_id}  [Scout]: {scout_id}")
-
     # ── Tokenize corpus ──────────────────────────────────────
     if corpus_needs_tokenization(corpus_dir, token_file):
-        print("Tokenizing corpus...")
+        print("Corpus changed or tokens missing — tokenizing...")
         tokenize_corpus(
             input_dir=corpus_dir,
             tokenizer=tokenizer,
@@ -352,7 +257,7 @@ def main(args):
         print(f"Validation corpus: {len(val_tokens):,} tokens")
     else:
         print("No validation corpus found — skipping validation loss.")
-        print(f"  To enable: place held-out conversations in {val_token_file}")
+        print(f"  To enable: tokenize held-out conversations → {val_token_file}")
 
     # ── Dataloader ───────────────────────────────────────────
     loader    = build_dataloader(
@@ -375,7 +280,7 @@ def main(args):
     n_params = sum(p.numel() for p in model.parameters())
     print(f"Model parameters: {n_params:,} ({n_params/1e6:.1f}M)")
 
-    # ── Optimizer + scheduler ────────────────────────────────
+    # ── Optimizer ────────────────────────────────────────────
     optimizer = AdamW(
         model.parameters(),
         lr=cfg["learning_rate"],
@@ -383,12 +288,12 @@ def main(args):
         betas=(0.9, 0.95),
     )
 
+    # ── Scheduler ────────────────────────────────────────────
     scheduler = build_scheduler(
         optimizer,
         total_steps=cfg["max_steps"],
         warmup_steps=cfg["warmup_steps"],
         min_lr=cfg["min_lr"],
-        base_lr=cfg["learning_rate"],
     )
 
     # ── Resume ───────────────────────────────────────────────
@@ -399,23 +304,25 @@ def main(args):
     step       = start_step
 
     # ── Gradient accumulation ────────────────────────────────
-    # Effective batch size = batch_size × accum_steps
     accum_steps = getattr(args, "accum_steps", 1)
     if accum_steps > 1:
-        print(f"Gradient accumulation: {accum_steps} steps "
-              f"(effective batch size: {cfg['batch_size'] * accum_steps})")
+        print(
+            f"Gradient accumulation: {accum_steps} steps "
+            f"(effective batch size: {cfg['batch_size'] * accum_steps})"
+        )
 
-    # ── Training loop ─────────────────────────────────────────
+    # ── Training loop ────────────────────────────────────────
     print(f"\nTraining from step {start_step} → {cfg['max_steps']}\n")
 
     model.train()
-    start_time     = time.time()
-    accum_loss     = 0.0
     optimizer.zero_grad()
+
+    start_time = time.time()
+    accum_loss = 0.0
 
     while step < cfg["max_steps"]:
 
-        # ── Fetch batch ──────────────────────────────────────
+        # Fetch next batch, cycling the dataloader as needed
         try:
             batch = next(data_iter)
         except StopIteration:
@@ -425,46 +332,35 @@ def main(args):
         x = batch["input_ids"].to(device)
         y = batch["labels"].to(device)
 
-        # ── Forward pass ─────────────────────────────────────
+        # Forward + loss
         logits = model(x)
+        loss   = F.cross_entropy(
+            logits.view(-1, logits.size(-1)),
+            y.view(-1),
+        )
 
-        # Build Scout-only mask and compute masked loss
-        if args.speaker_masking:
-            mask = build_scout_mask(x, trey_id, scout_id).to(device)
-            loss = masked_cross_entropy(logits, y, mask)
-        else:
-            shift_logits = logits[:, :-1, :].contiguous()
-            shift_labels = y[:, 1:].contiguous()
-            loss = F.cross_entropy(
-                shift_logits.view(-1, shift_logits.size(-1)),
-                shift_labels.view(-1)
-            )
-
-        # Scale loss for gradient accumulation
-        scaled_loss = loss / accum_steps
-        scaled_loss.backward()
+        # Scale for gradient accumulation
+        (loss / accum_steps).backward()
         accum_loss += loss.item()
 
-        # ── Optimizer step (every accum_steps) ───────────────
+        # Optimizer step every accum_steps
         if (step + 1) % accum_steps == 0:
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
             scheduler.step()
             optimizer.zero_grad()
 
-        # ── Logging ──────────────────────────────────────────
+        # Logging
         if step % args.log_interval == 0:
-            elapsed = time.time() - start_time
+            elapsed    = time.time() - start_time
             current_lr = scheduler.get_last_lr()[0]
             avg_loss   = accum_loss / max(step - start_step + 1, 1)
 
             val_str = ""
-            if val_tokens is not None and step % (args.log_interval * 10) == 0 and step > 0:
-                v_loss = validation_loss(
-                    model, val_tokens, cfg, device,
-                    trey_id, scout_id,
-                    args.speaker_masking
-                )
+            if (val_tokens is not None
+                    and step > 0
+                    and step % (args.log_interval * 10) == 0):
+                v_loss  = validation_loss(model, val_tokens, cfg, device)
                 val_str = f" | val {v_loss:.4f}"
 
             print(
@@ -476,7 +372,7 @@ def main(args):
                 f"{elapsed:.0f}s"
             )
 
-        # ── Checkpoint ───────────────────────────────────────
+        # Checkpoint
         if step % args.save_interval == 0 and step > start_step:
             save_checkpoint(
                 out_dir, step,
@@ -486,7 +382,7 @@ def main(args):
 
         step += 1
 
-    # ── Final checkpoint ─────────────────────────────────────
+    # Final checkpoint
     print("\nTraining complete.")
     save_checkpoint(
         out_dir, step,
@@ -502,29 +398,23 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--corpus_dir",   default="../corpus")
-    parser.add_argument("--data_path",    default="../data/corpus.pt")
-    parser.add_argument("--out_dir",      default="../checkpoints")
-    parser.add_argument("--tokenizer",    default="mistralai/Mistral-7B-v0.1")
+    parser.add_argument("--corpus_dir",    default="../corpus")
+    parser.add_argument("--data_path",     default="../data/corpus.pt")
+    parser.add_argument("--out_dir",       default="../checkpoints")
+    parser.add_argument("--tokenizer",     default="mistralai/Mistral-7B-v0.1")
 
-    parser.add_argument("--steps",        type=int,   default=DEFAULT_CONFIG["max_steps"])
-    parser.add_argument("--batch_size",   type=int,   default=DEFAULT_CONFIG["batch_size"])
-    parser.add_argument("--seq_len",      type=int,   default=DEFAULT_CONFIG["block_size"])
-    parser.add_argument("--lr",           type=float, default=DEFAULT_CONFIG["learning_rate"])
-    parser.add_argument("--warmup_steps", type=int,   default=DEFAULT_CONFIG["warmup_steps"])
-    parser.add_argument("--min_lr",       type=float, default=3e-5)
-    parser.add_argument("--accum_steps",  type=int,   default=1)
+    parser.add_argument("--steps",         type=int,   default=DEFAULT_CONFIG["max_steps"])
+    parser.add_argument("--batch_size",    type=int,   default=DEFAULT_CONFIG["batch_size"])
+    parser.add_argument("--seq_len",       type=int,   default=DEFAULT_CONFIG["block_size"])
+    parser.add_argument("--lr",            type=float, default=DEFAULT_CONFIG["learning_rate"])
+    parser.add_argument("--warmup_steps",  type=int,   default=DEFAULT_CONFIG["warmup_steps"])
+    parser.add_argument("--min_lr",        type=float, default=3e-5)
+    parser.add_argument("--accum_steps",   type=int,   default=1)
 
-    parser.add_argument("--log_interval",  type=int,  default=DEFAULT_CONFIG["log_interval"])
-    parser.add_argument("--save_interval", type=int,  default=DEFAULT_CONFIG["save_interval"])
+    parser.add_argument("--log_interval",  type=int,   default=DEFAULT_CONFIG["log_interval"])
+    parser.add_argument("--save_interval", type=int,   default=DEFAULT_CONFIG["save_interval"])
 
-    parser.add_argument("--s3_bucket",    default=None)
-
-    parser.add_argument(
-        "--speaker_masking",
-        action="store_true",
-        help="Enable Scout-only loss masking using [Trey]/[Scout] tokens"
-    )
+    parser.add_argument("--s3_bucket",     default=None)
 
     args = parser.parse_args()
     main(args)

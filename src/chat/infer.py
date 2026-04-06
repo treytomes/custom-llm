@@ -3,8 +3,8 @@
 import torch
 from transformers import AutoTokenizer
 
-from training.model import GPT
-from training.config import DEFAULT_CONFIG
+from train.model import GPT
+from train.config import DEFAULT_CONFIG
 
 from config import *
 
