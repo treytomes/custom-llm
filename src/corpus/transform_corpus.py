@@ -289,8 +289,8 @@ def split_conversations(text):
 def validate(text):
     lines = [l.strip() for l in text.splitlines() if l.strip()]
 
-    trey  = sum(1 for l in lines if l.startswith("[{config.USER_NAME}]"))
-    scout = sum(1 for l in lines if l.startswith("[{config.MODEL_NAME}]"))
+    trey  = sum(1 for l in lines if l.startswith(f"[{config.USER_NAME}]"))
+    scout = sum(1 for l in lines if l.startswith(f"[{config.MODEL_NAME}]"))
 
     if trey < 5 or scout < 5:
         # print(f"Validation failed: {text}")
@@ -303,7 +303,6 @@ def validate(text):
 # ───────────────────────────────────────────────────────────
 
 def transform(client, chapter_text, voice_excerpt, temperature):
-
     messages = build_messages(chapter_text, voice_excerpt)
 
     response = client.chat.completions.create(

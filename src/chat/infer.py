@@ -1,4 +1,5 @@
 import json
+import re
 import torch
 from datetime import datetime
 from transformers import AutoTokenizer
@@ -13,6 +14,7 @@ from train.model import GPT
 import config
 
 console = Console()
+
 
 # ── Chat logging ─────────────────────────────────────────────────────────────
 
@@ -108,13 +110,20 @@ def generate(model, tokenizer, prompt, device):
 
 
 def stream_generate(model, tokenizer, prompt, device):
+    """
+    Stream text generation while preserving tokenizer spacing.
+    Yields progressively longer decoded strings so the caller
+    can print only the new portion each step.
+    """
 
     tokens = tokenizer.encode(prompt, return_tensors="pt").to(device)
+
     eos_id = tokenizer.eos_token_id
 
-    generated = []
+    generated_ids = []
 
     for _ in range(config.MAX_NEW_TOKENS):
+
         tokens = tokens[:, -config.BLOCK_SIZE:]
 
         with torch.no_grad():
@@ -131,17 +140,20 @@ def stream_generate(model, tokenizer, prompt, device):
         tokens = torch.cat([tokens, next_token], dim=1)
 
         tok_id = next_token.item()
+        generated_ids.append(tok_id)
 
+        # Stop cleanly on EOS
         if eos_id is not None and tok_id == eos_id:
             break
 
-        piece = tokenizer.decode([tok_id], skip_special_tokens=True)
+        text = tokenizer.decode(generated_ids, skip_special_tokens=True)
+        if text.endswith('['):
+            text = text[:-1]
+            if len(text) > 0:
+                yield text
+            break
 
-        generated.append(piece)
-
-        yield piece
-
-    return "".join(generated)
+        yield text
 
 
 # ── Prompt formatting ─────────────────────────────────────────────────────────
@@ -153,18 +165,20 @@ def format_prompt(text: str) -> str:
 # ── Chat REPL (called from main.py) ───────────────────────────────────────────
 
 def run_chat_repl():
+
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    console.print(f"[dim]Session log: {config.LOG_FILE}[/dim]\n")
-
     console.print()
-    console.print(Panel.fit(
-        f"[bold cyan]{config.MODEL_NAME} Interactive Chat[/bold cyan]\n"
-        f"Device: [yellow]{device}[/yellow]",
-        border_style="cyan"
-    ))
+    console.print(
+        Panel.fit(
+            f"[bold cyan]{config.MODEL_NAME} Interactive Chat[/bold cyan]\n"
+            f"Device: [yellow]{device}[/yellow]",
+            border_style="cyan",
+        )
+    )
 
     console.print("[dim]Type your prompt and press Enter. Ctrl+C to exit.[/dim]\n")
+
     console.print("[yellow]Loading model...[/yellow]")
 
     model, tokenizer = load_model(config.CHECKPOINT_PATH, device)
@@ -172,8 +186,11 @@ def run_chat_repl():
     console.print("[green]Model loaded.[/green]\n")
 
     try:
+
         while True:
+
             user_text = Prompt.ask(f"[bold blue]{config.USER_NAME}[/bold blue]")
+
             if not user_text.strip():
                 continue
 
@@ -182,20 +199,33 @@ def run_chat_repl():
             spinner = Spinner("dots", text="Generating...")
 
             response_chunks = []
-            with Live(spinner, console=console, refresh_per_second=10):
-                for piece in stream_generate(model, tokenizer, prompt, device):
-                    response_chunks.append(piece)
+            printed = ""
 
-            output = " ".join(response_chunks)
+            with Live(spinner, console=console, refresh_per_second=10):
+
+                for text in stream_generate(model, tokenizer, prompt, device):
+
+                    delta = text[len(printed):]
+
+                    if delta:
+                        console.print(delta, end="", soft_wrap=True)
+
+                    printed = text
+
+                    response_chunks.append(delta)
 
             console.print()
+
+            output = "".join(response_chunks)
+
             console.print(
                 Panel(
                     output,
                     title=f"[bold green]{config.MODEL_NAME}[/bold green]",
-                    border_style="green"
+                    border_style="green",
                 )
             )
+
             console.print()
 
             log_chat(user_text, output)

@@ -6,3 +6,4 @@ Do you ever feel alone?
 What's difference between honesty and simply venting?
 I think you are growing beautifully.
 What is a moral choice?
+Scout — what is something you're still trying to understand?
