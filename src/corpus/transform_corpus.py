@@ -247,6 +247,9 @@ Generate the conversations now.
 # ───────────────────────────────────────────────────────────
 
 def clean_output(text):
+    if text == None:
+        return None
+
     lines = text.splitlines()
 
     start = 0
@@ -313,6 +316,7 @@ def transform(client, chapter_text, voice_excerpt, temperature):
     )
 
     raw = response.choices[0].message.content
+    # TODO: If raw == None, run retry logic on the chat completion.
 
     cleaned = clean_output(raw)
 

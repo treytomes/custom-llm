@@ -23,17 +23,6 @@ SAVE_INTERVAL  = 50
 NUM_WORKERS    = os.cpu_count() // 2
 
 #
-# Inference Parameters
-#
-
-# Kept short intentionally — Scout's coherent window at 50M is ~3 sentences.
-# Increase as coherence improves with scale.
-MAX_NEW_TOKENS = 80
-TEMPERATURE    = 0.6   # Try raising this later in the training cycle.
-TOP_K          = 40
-REP_PENALTY    = 1.1   # 1.0 = disabled; 1.2–1.5 is a reasonable range
-
-#
 # Training Parameters
 #
 
@@ -207,3 +196,14 @@ MODEL_LAYERS = 12
 # * head 3 → punctuation
 # * etc.
 MODEL_HEADS  = 8
+
+#
+# Inference Parameters
+#
+
+# Kept short intentionally — Scout's coherent window at 50M is ~3 sentences.
+# Increase as coherence improves with scale.
+MAX_NEW_TOKENS = BLOCK_SIZE
+TEMPERATURE    = 0.8   # Try raising this later in the training cycle.
+TOP_K          = 40
+REP_PENALTY    = 1.1   # 1.0 = disabled; 1.2–1.5 is a reasonable range

@@ -13,7 +13,7 @@ from rich.panel import Panel
 from dotenv import load_dotenv
 
 import config
-from chat.infer import run_chat_repl
+from chat.repl import run_chat_repl
 from train.data import (
     corpus_needs_tokenization,
     load_token_tensor,

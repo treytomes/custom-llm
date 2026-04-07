@@ -1,5 +1,6 @@
 __pycache__
 .env
+chat_logs
 checkpoints
 custom-llm-env
 data
