@@ -159,8 +159,7 @@ def stream_generate(model, tokenizer, prompt, device):
 # ── Prompt formatting ─────────────────────────────────────────────────────────
 
 def format_prompt(text: str) -> str:
-    return f"[{config.USER_NAME}] {text}\n\n[{config.MODEL_NAME}] "
-
+    return f"[{config.USER_NAME}] {text}\n[{config.MODEL_NAME}]"
 
 # ── Chat REPL (called from main.py) ───────────────────────────────────────────
 

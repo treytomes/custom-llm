@@ -13,7 +13,7 @@ MODEL_NAME     = "Scout"
 
 # The current max steps is 150,932 based on the corpus size.
 
-MAX_STEPS      = 6000
+MAX_STEPS      = 15000
 LEARNING_RATE  = 3e-4
 WARMUP_STEPS   = 100
 MIN_LR         = 3e-5
