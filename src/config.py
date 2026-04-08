@@ -13,14 +13,15 @@ MODEL_NAME     = "Scout"
 
 # The current max steps is 150,932 based on the corpus size.
 
-MAX_STEPS      = 30000
-LEARNING_RATE  = 3e-4
-WARMUP_STEPS   = 100
-MIN_LR         = 3e-5
+MAX_STEPS        = 30000
+LEARNING_RATE    = 3e-4
+WARMUP_STEPS     = 100
+MIN_LR           = 3e-5
 
-LOG_INTERVAL   = 20
-SAVE_INTERVAL  = 50
-NUM_WORKERS    = os.cpu_count() // 2
+LOG_INTERVAL     = 20
+SAVE_INTERVAL    = 50
+NUM_WORKERS      = os.cpu_count() // 2
+DPO_SAMPLE_COUNT = 4
 
 #
 # Training Parameters

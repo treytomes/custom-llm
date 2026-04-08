@@ -1,3 +1,9 @@
+"""
+chat/repl.py
+
+REPL management for chat sessions.
+"""
+
 import torch
 from rich.console import (
     Console,
@@ -140,7 +146,7 @@ def run_chat_repl():
             user_text = prompt_user()
             if not user_text:
                 continue
-            
+
             user_turn = f"[{config.USER_NAME}] {user_text}\n"
             prompt = "".join(conversation_history) + f"[{config.MODEL_NAME}]"
             conversation_history.append(user_turn)
@@ -173,5 +179,4 @@ def run_chat_repl():
                 )
 
     except KeyboardInterrupt:
-
         console.print("\n[bold red]Exiting chat.[/bold red]\n")

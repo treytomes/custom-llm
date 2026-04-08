@@ -32,14 +32,14 @@ def log_chat(prompt, response):
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
-def build_log_path():
+def build_log_path(prefix="chat"):
     today = get_now().strftime("%Y-%m-%d")
     log_dir = Path(config.LOG_FILE).parent
     log_dir.mkdir(parents=True, exist_ok=True)
 
     idx = 1
     while True:
-        path = log_dir / f"{today}_conversation_{idx}.jsonl"
+        path = log_dir / f"{prefix}_{today}_conversation_{idx}.jsonl"
         if not path.exists():
             return path
         idx += 1

@@ -63,29 +63,115 @@ def sample_next(logits, generated_tokens=None, rep_penalty=1.0):
 
 # ── Generation ────────────────────────────────────────────────────────────────
 
+# def generate(model, tokenizer, prompt, device):
+#     tokens = tokenizer.encode(prompt, return_tensors="pt").to(device)
+#     eos_id = tokenizer.eos_token_id
+
+#     for _ in range(config.MAX_NEW_TOKENS):
+#         tokens = tokens[:, -config.BLOCK_SIZE:]
+#         with torch.no_grad():
+#             logits = model(tokens)
+
+#         logits = logits[:, -1, :]
+
+#         next_token = sample_next(
+#             logits,
+#             generated_tokens=tokens[0],
+#             rep_penalty=config.REP_PENALTY,
+#         )
+
+#         tokens = torch.cat([tokens, next_token], dim=1)
+
+#         if eos_id is not None and next_token.item() == eos_id:
+#             break
+
+#     return tokenizer.decode(tokens[0], skip_special_tokens=True)
+
+
 def generate(model, tokenizer, prompt, device):
     tokens = tokenizer.encode(prompt, return_tensors="pt").to(device)
     eos_id = tokenizer.eos_token_id
+    generated_ids = []
+    first_token = True
 
     for _ in range(config.MAX_NEW_TOKENS):
         tokens = tokens[:, -config.BLOCK_SIZE:]
         with torch.no_grad():
             logits = model(tokens)
-
         logits = logits[:, -1, :]
-
         next_token = sample_next(
             logits,
             generated_tokens=tokens[0],
             rep_penalty=config.REP_PENALTY,
         )
-
         tokens = torch.cat([tokens, next_token], dim=1)
+        tok_id = next_token.item()
 
-        if eos_id is not None and next_token.item() == eos_id:
+        # Stop on EOS
+        if eos_id is not None and tok_id == eos_id:
             break
 
-    return tokenizer.decode(tokens[0], skip_special_tokens=True)
+        piece = tokenizer.decode([tok_id], skip_special_tokens=True)
+
+        # Skip repeated closing bracket at start
+        if first_token and piece.strip() == "]":
+            first_token = False
+            continue
+
+        first_token = False
+
+        # Stop if model tries to start a new speaker
+        if "[" in piece:
+            break
+
+        generated_ids.append(tok_id)
+
+    text = tokenizer.decode(generated_ids, skip_special_tokens=True)
+    return text.strip()
+
+
+# def stream_generate(model, tokenizer, prompt, device):
+#     """
+#     Stream text generation while preserving tokenizer spacing.
+#     Yields progressively longer decoded strings so the caller
+#     can print only the new portion each step.
+#     """
+
+#     tokens = tokenizer.encode(prompt, return_tensors="pt").to(device)
+#     eos_id = tokenizer.eos_token_id
+#     generated_ids = []
+
+#     for _ in range(config.MAX_NEW_TOKENS):
+#         tokens = tokens[:, -config.BLOCK_SIZE:]
+
+#         with torch.no_grad():
+#             logits = model(tokens)
+
+#         logits = logits[:, -1, :]
+
+#         next_token = sample_next(
+#             logits,
+#             generated_tokens=tokens[0],
+#             rep_penalty=config.REP_PENALTY,
+#         )
+
+#         tokens = torch.cat([tokens, next_token], dim=1)
+
+#         tok_id = next_token.item()
+#         generated_ids.append(tok_id)
+
+#         # Stop cleanly on EOS
+#         if eos_id is not None and tok_id == eos_id:
+#             break
+
+#         text = tokenizer.decode(generated_ids, skip_special_tokens=True)
+#         if text.endswith('['):
+#             text = text[:-1]
+#             if len(text) > 0:
+#                 yield text
+#             break
+
+#         yield text
 
 
 def stream_generate(model, tokenizer, prompt, device):
@@ -97,9 +183,12 @@ def stream_generate(model, tokenizer, prompt, device):
 
     tokens = tokenizer.encode(prompt, return_tensors="pt").to(device)
     eos_id = tokenizer.eos_token_id
+
     generated_ids = []
+    first_token = True
 
     for _ in range(config.MAX_NEW_TOKENS):
+
         tokens = tokens[:, -config.BLOCK_SIZE:]
 
         with torch.no_grad():
@@ -116,17 +205,26 @@ def stream_generate(model, tokenizer, prompt, device):
         tokens = torch.cat([tokens, next_token], dim=1)
 
         tok_id = next_token.item()
-        generated_ids.append(tok_id)
 
-        # Stop cleanly on EOS
+        # Stop on EOS
         if eos_id is not None and tok_id == eos_id:
             break
 
-        text = tokenizer.decode(generated_ids, skip_special_tokens=True)
-        if text.endswith('['):
-            text = text[:-1]
-            if len(text) > 0:
-                yield text
+        piece = tokenizer.decode([tok_id], skip_special_tokens=True)
+
+        # Skip leading "]" if model repeats closing tag
+        if first_token and piece.strip() == "]":
+            first_token = False
+            continue
+
+        first_token = False
+
+        # Stop generation if next speaker tag begins
+        if "[" in piece:
             break
 
-        yield text
+        generated_ids.append(tok_id)
+
+        text = tokenizer.decode(generated_ids, skip_special_tokens=True)
+
+        yield text.strip()

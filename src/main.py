@@ -275,6 +275,28 @@ def corpus_generate_dialogue(
     )
 
 
+@app.command()
+def dpo():
+    """
+    Launch DPO data collection interface.
+    """
+    from chat.dpo import run_dpo_repl
+    run_dpo_repl()
+
+
+@app.command()
+def build_dpo():
+    """
+    Generate the training set from DPO session data.
+    """
+    from train.dpo import build_dpo_dataset
+
+    build_dpo_dataset(
+        Path("../chat_logs"),
+        Path("../data/dpo_data/pairs.jsonl"),
+    )
+
+
 # ---------------------------------------------------------
 
 if __name__ == "__main__":
