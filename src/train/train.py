@@ -16,7 +16,10 @@ from torch.optim.lr_scheduler import LambdaLR, CosineAnnealingLR, SequentialLR
 from transformers import AutoTokenizer
 
 import config
-from .model import GPT
+from model.loader import (
+    init_model,
+    load_checkpoint,
+)
 from .data import load_token_tensor, build_dataloader
 
 
@@ -51,7 +54,6 @@ def build_scheduler(optimizer, total_steps, warmup_steps, min_lr):
 # ─────────────────────────────────────────────────────────────
 
 def save_checkpoint(out_dir, step, model, optimizer, scheduler, cfg):
-
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -74,30 +76,21 @@ def save_checkpoint(out_dir, step, model, optimizer, scheduler, cfg):
 
 def try_resume_checkpoint(model, optimizer, scheduler, checkpoint_dir, device):
     latest = Path(checkpoint_dir) / "latest.pt"
-
     if not latest.exists():
         logger.info("No checkpoint found — starting fresh.")
         return 0
-
     logger.info("Resuming from checkpoint: %s", latest)
 
-    ckpt = torch.load(latest, map_location=device)
+    checkpoint, state = load_checkpoint(latest, model, device)
 
-    state = ckpt["model"] if "model" in ckpt else ckpt
+    optimizer.load_state_dict(checkpoint["optimizer"])
 
-    # Fix compiled-model checkpoints
-    if any(k.startswith("_orig_mod.") for k in state.keys()):
-        state = {k.replace("_orig_mod.", ""): v for k, v in state.items()}
-
-    model.load_state_dict(state)
-    optimizer.load_state_dict(ckpt["optimizer"])
-
-    if "scheduler" in ckpt:
-        scheduler.load_state_dict(ckpt["scheduler"])
+    if "scheduler" in checkpoint:
+        scheduler.load_state_dict(checkpoint["scheduler"])
     else:
         logger.info("Warning: no scheduler state in checkpoint — scheduler reset.")
 
-    step = ckpt.get("step", 0)
+    step = checkpoint.get("step", 0)
 
     logger.info("Resumed from step %d", step)
 
@@ -202,13 +195,7 @@ def run_training():
 
     # ── Model ────────────────────────────────────────────────
 
-    model = GPT(
-        vocab_size=vocab_size,
-        dim=config.MODEL_DIM,
-        layers=config.MODEL_LAYERS,
-        heads=config.MODEL_HEADS,
-        max_seq=config.BLOCK_SIZE,
-    ).to(device)
+    model = init_model(vocab_size, device)
 
     n_params = sum(p.numel() for p in model.parameters())
 

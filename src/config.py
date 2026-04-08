@@ -13,7 +13,7 @@ MODEL_NAME     = "Scout"
 
 # The current max steps is 150,932 based on the corpus size.
 
-MAX_STEPS        = 30000
+MAX_STEPS        = 50000
 LEARNING_RATE    = 3e-4
 WARMUP_STEPS     = 100
 MIN_LR           = 3e-5
@@ -158,7 +158,7 @@ REP_PENALTY    = 1.1
 # Effects:
 # * smaller → faster training
 # * larger → better reasoning and memory
-BLOCK_SIZE = 128
+BLOCK_SIZE = 256
 
 # This is how many training sequences are processed per optimization step.
 # i.e. the tokens / step throughput
@@ -197,14 +197,3 @@ MODEL_LAYERS = 12
 # * head 3 → punctuation
 # * etc.
 MODEL_HEADS  = 8
-
-#
-# Inference Parameters
-#
-
-# Kept short intentionally — Scout's coherent window at 50M is ~3 sentences.
-# Increase as coherence improves with scale.
-MAX_NEW_TOKENS = BLOCK_SIZE
-TEMPERATURE    = 0.8   # Try raising this later in the training cycle.
-TOP_K          = 40
-REP_PENALTY    = 1.1   # 1.0 = disabled; 1.2–1.5 is a reasonable range

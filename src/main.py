@@ -41,6 +41,23 @@ logger = logging.getLogger(config.LOGGER_NAME)
 # ---------------------------------------------------------
 # reporting helpers
 
+
+def report_dpo_training_capacity(pairs, target_steps=None):
+    pair_count = len(pairs)
+    steps_per_epoch = pair_count
+
+    logger.info("")
+    logger.info("DPO Dataset Report")
+    logger.info("------------------------------------------------")
+    logger.info("Preference pairs       : %s", f"{pair_count:,}")
+    logger.info("Steps per epoch        : %s", f"{steps_per_epoch:,}")
+
+    if target_steps:
+        epochs = target_steps / max(steps_per_epoch, 1)
+        logger.info("Target training steps  : %s", f"{target_steps:,}")
+        logger.info("Estimated epochs       : %.2f", epochs)
+
+
 def generate_training_plan(
     token_file: Path,
     target_tokens: int | None = None,
@@ -291,11 +308,23 @@ def build_dpo():
     """
     from train.dpo import build_dpo_dataset
 
-    build_dpo_dataset(
+    pairs = build_dpo_dataset(
         Path("../chat_logs"),
         Path("../data/dpo_data/pairs.jsonl"),
     )
+    
+    report_dpo_training_capacity(pairs, target_steps=1000)
 
+
+@app.command()
+def fine_tune():
+    from train.fine_tune import run_dpo_fine_tune
+
+    run_dpo_fine_tune(
+        Path("../data/dpo_data/pairs.jsonl"),
+        Path("../data/checkpoints/latest.pt"),
+        Path("../data/checkpoints/dpo"),
+    )
 
 # ---------------------------------------------------------
 

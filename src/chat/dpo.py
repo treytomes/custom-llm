@@ -12,8 +12,9 @@ from rich.panel import Panel
 from rich.prompt import Prompt
 
 import config
-from .infer import load_model, generate
+from .infer import generate
 from .logging import build_log_path
+from model.loader import load_model
 
 console = Console()
 

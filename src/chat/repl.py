@@ -17,7 +17,6 @@ from rich.live import Live
 import config
 from .infer import (
     count_tokens,
-    load_model,
     stream_generate,
 )
 from .logging import (
@@ -25,6 +24,7 @@ from .logging import (
     log_chat,
     log_turn,
 )
+from model.loader import load_model
 
 
 console = Console()

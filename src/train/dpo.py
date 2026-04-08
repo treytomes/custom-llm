@@ -185,3 +185,4 @@ def build_dpo_dataset(
 
     save_pairs(pairs, output_path)
     print_sample(pairs)
+    return pairs
