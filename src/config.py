@@ -14,62 +14,11 @@ MODEL_NAME     = "Scout"
 # The current max steps is 150,932 based on the corpus size.
 
 MAX_STEPS        = 50000
+
+# Increased warmup from 100 to 500 to give Scout time to adjust to the doubled block size.
+WARMUP_STEPS     = 500
+
 LEARNING_RATE    = 3e-4
-WARMUP_STEPS     = 100
-MIN_LR           = 3e-5
-
-LOG_INTERVAL     = 20
-SAVE_INTERVAL    = 50
-NUM_WORKERS      = os.cpu_count() // 2
-DPO_SAMPLE_COUNT = 4
-
-#
-# Training Parameters
-#
-
-# Data paths
-
-# Checkpoints
-# Update CHECKPOINT_PATH locally in infer.py when testing DPO output
-CHECKPOINT_DIR      = "../data/checkpoints"
-CHECKPOINT_PATH     = Path(CHECKPOINT_DIR) / "latest.pt"
-DPO_CHECKPOINT_PATH = Path(CHECKPOINT_DIR) / "dpo/dpo_latest.pt"
-
-LOGGER_NAME         = "llm"
-OUTPUT_DIR          = "../data/corpus"
-CORPUS_DIR          = Path(OUTPUT_DIR) / "dialogue"
-CORPUS_TOKEN_FILE   = "corpus.pt"
-VOICE_FILE          = "../data/voice/scout_voice.txt"
-CHAPTERS_DIR        = "../data/corpus/chapters"
-DIALOGUE_OUTPUT_DIR = "../data/corpus/dialogue"
-
-
-DATA_PATH           = Path(OUTPUT_DIR) / CORPUS_TOKEN_FILE
-
-# ── Training hyperparameters ──────────────────────────
-
-# Context window size in tokens.
-BLOCK_SIZE = 128
-
-BATCH_SIZE = 8
-# config.py
-
-import os
-from pathlib import Path
-
-TOKENIZER_NAME = "mistralai/Mistral-7B-v0.1"
-USER_NAME      = "Trey"
-MODEL_NAME     = "Scout"
-
-#
-# Training parameters
-#
-
-# The current max steps is 150,932 based on the corpus size.
-
-MAX_STEPS      = 30000
-LEARNING_RATE  = 3e-4
-WARMUP_STEPS   = 100
 MIN_LR         = 3e-5
 
 LOG_INTERVAL   = 20
@@ -84,6 +33,7 @@ NUM_WORKERS    = os.cpu_count() // 2
 # Update CHECKPOINT_PATH locally in infer.py when testing DPO output
 CHECKPOINT_DIR      = "../data/checkpoints"
 CHECKPOINT_PATH     = Path(CHECKPOINT_DIR) / "latest.pt"
+DPO_OUTPUT_PATH     = Path("../data/checkpoints/dpo")
 DPO_CHECKPOINT_PATH = Path(CHECKPOINT_DIR) / "dpo/dpo_latest.pt"
 
 LOGGER_NAME         = "llm"
@@ -95,6 +45,7 @@ CHAPTERS_DIR        = "../data/corpus/chapters"
 DIALOGUE_OUTPUT_DIR = "../data/corpus/dialogue"
 
 DATA_PATH           = Path(OUTPUT_DIR) / CORPUS_TOKEN_FILE
+DPO_PAIRS_PATH      = Path("../data/dpo_data/pairs.jsonl")
 
 #
 # Chat Logging

@@ -309,8 +309,8 @@ def build_dpo():
     from train.dpo import build_dpo_dataset
 
     pairs = build_dpo_dataset(
-        Path("../chat_logs"),
-        Path("../data/dpo_data/pairs.jsonl"),
+        config.LOG_DIR,
+        config.DPO_PAIRS_PATH,
     )
     
     report_dpo_training_capacity(pairs, target_steps=1000)
@@ -321,9 +321,9 @@ def fine_tune():
     from train.fine_tune import run_dpo_fine_tune
 
     run_dpo_fine_tune(
-        Path("../data/dpo_data/pairs.jsonl"),
-        Path("../data/checkpoints/latest.pt"),
-        Path("../data/checkpoints/dpo"),
+        config.DPO_PAIRS_PATH,
+        config.CHECKPOINT_PATH,
+        config.DPO_OUTPUT_PATH,
     )
 
 # ---------------------------------------------------------
