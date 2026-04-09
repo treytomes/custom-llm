@@ -13,7 +13,7 @@ MODEL_NAME     = "Scout"
 
 # The current max steps is 150,932 based on the corpus size.
 
-MAX_STEPS        = 50000
+MAX_STEPS        = 70000
 
 # Increased warmup from 100 to 500 to give Scout time to adjust to the doubled block size.
 WARMUP_STEPS     = 500
@@ -73,7 +73,7 @@ LOG_FILE = LOG_DIR / "chat.jsonl"
 # 
 # Kept short intentionally — Scout's coherent window at 50M is ~3 sentences.
 # Increase as coherence improves with scale.
-MAX_NEW_TOKENS = 80
+MAX_NEW_TOKENS = 128
 
 # Temperature controls randomness in sampling.
 # Lower values → safer, repetitive, predictable.
@@ -118,7 +118,7 @@ REP_PENALTY    = 1.1
 # Effects:
 # * smaller → faster training
 # * larger → better reasoning and memory
-BLOCK_SIZE = 256
+BLOCK_SIZE = 512
 
 # This is how many training sequences are processed per optimization step.
 # i.e. the tokens / step throughput

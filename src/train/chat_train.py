@@ -345,8 +345,7 @@ def run_chat_cleanup_and_training(
     chat_log_path,
     endpoint,
     api_key,
-    checkpoint_path,
-    temp_dir="./tmp",
+    checkpoint_path
 ):
     client = build_client(endpoint, api_key)
 
@@ -374,6 +373,7 @@ def run_chat_cleanup_and_training(
         logger.info("Cleaned chat failed validation.")
         return
 
+    temp_dir="../tmp"
     cleaned_path = save_cleaned_chat(cleaned, temp_dir)
 
     logger.info(f"Cleaned transcript saved → {cleaned_path}")
@@ -397,28 +397,3 @@ def run_chat_cleanup_and_training(
     )
 
     logger.info("Chat training complete.")
-
-
-# ───────────────────────────────────────────────────────────
-# CLI
-# ───────────────────────────────────────────────────────────
-
-# if __name__ == "__main__":
-
-#     import argparse
-
-#     parser = argparse.ArgumentParser()
-
-#     parser.add_argument("--chat_log", required=True)
-#     parser.add_argument("--endpoint", required=True)
-#     parser.add_argument("--api_key", required=True)
-#     parser.add_argument("--checkpoint", required=True)
-
-#     args = parser.parse_args()
-
-#     run_chat_cleanup_and_training(
-#         args.chat_log,
-#         args.endpoint,
-#         args.api_key,
-#         Path(args.checkpoint),
-#     )
