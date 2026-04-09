@@ -36,57 +36,66 @@ def sample_next(logits, generated_tokens=None, rep_penalty=1.0):
 def generate(model, tokenizer, prompt, device):
     tokens = tokenizer.encode(prompt, return_tensors="pt").to(device)
     eos_id = tokenizer.eos_token_id
+
     generated_ids = []
-    first_token = True
+    buffer_ids = []
 
     for _ in range(config.MAX_NEW_TOKENS):
+
         tokens = tokens[:, -config.BLOCK_SIZE:]
+
         with torch.no_grad():
             logits = model(tokens)
+
         logits = logits[:, -1, :]
+
         next_token = sample_next(
             logits,
             generated_tokens=tokens[0],
             rep_penalty=config.REP_PENALTY,
         )
+
         tokens = torch.cat([tokens, next_token], dim=1)
+
         tok_id = next_token.item()
 
-        # Stop on EOS
         if eos_id is not None and tok_id == eos_id:
             break
 
-        piece = tokenizer.decode([tok_id], skip_special_tokens=True)
+        buffer_ids.append(tok_id)
 
-        # Skip repeated closing bracket at start
-        if first_token and piece.strip() == "]":
-            first_token = False
-            continue
+        preview = tokenizer.decode(buffer_ids, skip_special_tokens=True).strip()
 
-        first_token = False
+        # Detect baton pass like "Trey]" or "Mariam]"
+        if preview.endswith("]"):
+            return "<silence>"
 
-        # Stop if model tries to start a new speaker
-        if "[" in piece:
-            break
+        # Detect new speaker tag
+        if "[" in preview:
+            return "<silence>"
 
-        generated_ids.append(tok_id)
+        # Once buffer reaches 3 tokens, release it
+        if len(buffer_ids) >= 3:
+            generated_ids.extend(buffer_ids)
+            buffer_ids.clear()
+
+    # Flush remaining buffer
+    generated_ids.extend(buffer_ids)
+
+    if not generated_ids:
+        return "<silence>"
 
     text = tokenizer.decode(generated_ids, skip_special_tokens=True)
+
     return text.strip()
 
 
 def stream_generate(model, tokenizer, prompt, device):
-    """
-    Stream text generation while preserving tokenizer spacing.
-    Yields progressively longer decoded strings so the caller
-    can print only the new portion each step.
-    """
-
     tokens = tokenizer.encode(prompt, return_tensors="pt").to(device)
     eos_id = tokenizer.eos_token_id
 
     generated_ids = []
-    first_token = True
+    buffer_ids = []
 
     for _ in range(config.MAX_NEW_TOKENS):
 
@@ -107,25 +116,40 @@ def stream_generate(model, tokenizer, prompt, device):
 
         tok_id = next_token.item()
 
-        # Stop on EOS
         if eos_id is not None and tok_id == eos_id:
             break
 
-        piece = tokenizer.decode([tok_id], skip_special_tokens=True)
+        buffer_ids.append(tok_id)
 
-        # Skip leading "]" if model repeats closing tag
-        if first_token and piece.strip() == "]":
-            first_token = False
-            continue
+        preview = tokenizer.decode(buffer_ids, skip_special_tokens=True).strip()
 
-        first_token = False
+        # Baton pass detection
+        if preview.endswith("]"):
+            if not generated_ids:
+                yield "<silence>"
+            return
 
-        # Stop generation if next speaker tag begins
-        if "[" in piece:
-            break
+        # Speaker tag detection
+        if "[" in preview:
+            if not generated_ids:
+                yield "<silence>"
+            return
 
-        generated_ids.append(tok_id)
+        # Release buffer once safe
+        if len(buffer_ids) >= 3:
+            generated_ids.extend(buffer_ids)
+            buffer_ids.clear()
 
-        text = tokenizer.decode(generated_ids, skip_special_tokens=True)
+            text = tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
 
-        yield text.strip()
+            yield text
+
+    generated_ids.extend(buffer_ids)
+
+    if not generated_ids:
+        yield "<silence>"
+        return
+
+    text = tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
+
+    yield text

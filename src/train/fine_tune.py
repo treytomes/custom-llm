@@ -15,12 +15,13 @@ import torch
 import torch.nn.functional as F
 from transformers import AutoTokenizer
 
+import config
 from model.model import GPT
 from model.loader import (
     init_model,
     load_checkpoint,
 )
-import config
+from train.train import save_checkpoint
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +95,6 @@ def run_dpo_fine_tune(
         raise FileNotFoundError(f"Pairs file not found: {pairs_path}")
 
     pairs = []
-
     with open(pairs_path, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
@@ -118,7 +118,7 @@ def run_dpo_fine_tune(
 
     checkpoint, state = load_checkpoint(checkpoint_path, model, device)
 
-    ref_model.load_state_dict(copy.deepcopy(state))
+    ref_model.load_state_dict(copy.deepcopy(state), strict=False)
 
     for p in ref_model.parameters():
         p.requires_grad = False
@@ -126,7 +126,6 @@ def run_dpo_fine_tune(
     ref_model.eval()
 
     total_params = sum(p.numel() for p in model.parameters()) / 1e6
-
     logger.info("Model     : %.1fM parameters", total_params)
     logger.info("Reference : frozen")
 
@@ -137,9 +136,15 @@ def run_dpo_fine_tune(
         betas=(0.9, 0.95),
     )
 
-    output_dir.mkdir(parents=True, exist_ok=True)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer,
+        T_max=steps,
+    )
 
     base_step = checkpoint.get("step", 0)
+    global_step = base_step
+
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     logger.info("Starting DPO training")
 
@@ -153,7 +158,7 @@ def run_dpo_fine_tune(
     for step in range(steps):
         if step % len(pairs) == 0:
             random.shuffle(pairs)
-        
+
         pair = pairs[pairs_cycle % len(pairs)]
         pairs_cycle += 1
 
@@ -189,18 +194,15 @@ def run_dpo_fine_tune(
 
         if chosen_ids.shape[1] > config.BLOCK_SIZE or \
            rejected_ids.shape[1] > config.BLOCK_SIZE:
-
             skipped += 1
             continue
 
         if response_start >= chosen_ids.shape[1] or \
            response_start >= rejected_ids.shape[1]:
-
             skipped += 1
             continue
 
         with torch.no_grad():
-
             ref_lp_chosen = compute_log_prob(
                 ref_model,
                 chosen_ids,
@@ -239,7 +241,9 @@ def run_dpo_fine_tune(
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
 
         optimizer.step()
+        scheduler.step()
 
+        global_step += 1
         total_loss += loss.item()
 
         if (step + 1) % log_every == 0:
@@ -249,7 +253,7 @@ def run_dpo_fine_tune(
 
             logger.info(
                 "step %d | loss %.4f | chosen_lp %.3f | rejected_lp %.3f | %.1fs",
-                step + 1,
+                global_step,
                 avg_loss,
                 lp_chosen.item(),
                 lp_rejected.item(),
@@ -262,15 +266,23 @@ def run_dpo_fine_tune(
     if skipped:
         logger.info("Skipped %d pairs (context overflow)", skipped)
 
-    save_path = output_dir / "dpo_latest.pt"
+    logger.info("Saving checkpoint at step %d", global_step)
 
-    torch.save({
-        "step": base_step,
-        "dpo_steps": steps,
-        "model": model.state_dict(),
-    }, save_path)
+    save_checkpoint(
+        out_dir=output_dir,
+        step=global_step,
+        model=model,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        cfg={
+            "vocab_size": tokenizer.vocab_size,
+            "dim": config.MODEL_DIM,
+            "layers": config.MODEL_LAYERS,
+            "heads": config.MODEL_HEADS,
+            "block_size": config.BLOCK_SIZE,
+        },
+    )
 
     logger.info("DPO training complete")
-    logger.info("Checkpoint saved: %s", save_path)
 
-    return save_path
+    return output_dir / "latest.pt"

@@ -68,7 +68,7 @@ def save_checkpoint(out_dir, step, model, optimizer, scheduler, cfg):
         "config":    cfg,
     }
 
-    torch.save(checkpoint, ckpt_path)
+    torch.save(checkpoint, ckpt_path)   
     torch.save(checkpoint, latest_path)
 
     logger.info("Saved checkpoint: %s", ckpt_path)
@@ -76,21 +76,35 @@ def save_checkpoint(out_dir, step, model, optimizer, scheduler, cfg):
 
 def try_resume_checkpoint(model, optimizer, scheduler, checkpoint_dir, device):
     latest = Path(checkpoint_dir) / "latest.pt"
+
     if not latest.exists():
         logger.info("No checkpoint found — starting fresh.")
         return 0
+
     logger.info("Resuming from checkpoint: %s", latest)
 
     checkpoint, state = load_checkpoint(latest, model, device)
 
-    optimizer.load_state_dict(checkpoint["optimizer"])
-
-    if "scheduler" in checkpoint:
-        scheduler.load_state_dict(checkpoint["scheduler"])
-    else:
-        logger.info("Warning: no scheduler state in checkpoint — scheduler reset.")
-
     step = checkpoint.get("step", 0)
+
+    # Restore optimizer
+    try:
+        optimizer.load_state_dict(checkpoint["optimizer"])
+        logger.info("Optimizer state restored.")
+    except Exception:
+        logger.warning("Optimizer state incompatible — rebuilding optimizer.")
+
+    # Restore scheduler if possible
+    if "scheduler" in checkpoint:
+        try:
+            scheduler.load_state_dict(checkpoint["scheduler"])
+            logger.info("Scheduler state restored.")
+        except Exception:
+            logger.warning("Scheduler incompatible — rebuilding scheduler.")
+            scheduler.last_epoch = step
+    else:
+        logger.info("No scheduler state in checkpoint — advancing scheduler.")
+        scheduler.last_epoch = step
 
     logger.info("Resumed from step %d", step)
 
@@ -279,11 +293,14 @@ def run_training():
         if step % config.LOG_INTERVAL == 0:
             now = time.time()
             elapsed = now - start_time
-            step_time = now - last_log_time
+
+            interval_time = now - last_log_time
             last_log_time = now
 
+            step_time = interval_time / config.LOG_INTERVAL
+
             tokens_per_step = config.BLOCK_SIZE * config.BATCH_SIZE
-            tokens_per_sec = tokens_per_step / max(step_time, 1e-6)
+            tokens_per_sec = (tokens_per_step * config.LOG_INTERVAL) / max(interval_time, 1e-6)
 
             remaining_steps = config.MAX_STEPS - step
             eta_seconds = remaining_steps * step_time
@@ -314,7 +331,6 @@ def run_training():
         # Checkpoint
 
         if step % config.SAVE_INTERVAL == 0 and step > start_step:
-
             save_checkpoint(
                 checkpoint_dir,
                 step,

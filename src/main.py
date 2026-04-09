@@ -293,6 +293,25 @@ def corpus_generate_dialogue(
 
 
 @app.command()
+def dream():
+    """
+    Manually run Scout's dream sequence.
+    """
+    
+    from corpus.dream_sequence import run_dream
+    
+    chat_log_path = "../data/chat_logs/chat_2026-04-08_conversation_9.jsonl"
+
+    run_dream(
+        chat_log_path=chat_log_path,
+        endpoint=os.environ.get("AZURE_MISTRAL_ENDPOINT"),
+        api_key=os.environ.get("AZURE_MISTRAL_KEY"),
+        voice_file=config.VOICE_FILE,
+        output_dir="../data/dreams",
+    )
+
+
+@app.command()
 def dpo():
     """
     Launch DPO data collection interface.
@@ -318,6 +337,10 @@ def build_dpo():
 
 @app.command()
 def fine_tune():
+    """
+    Run the DPO pairs through the fine-tuning process.
+    """
+    
     from train.fine_tune import run_dpo_fine_tune
 
     run_dpo_fine_tune(

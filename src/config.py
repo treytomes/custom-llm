@@ -23,7 +23,16 @@ MIN_LR         = 3e-5
 
 LOG_INTERVAL   = 20
 SAVE_INTERVAL  = 50
-NUM_WORKERS    = os.cpu_count() // 2
+
+# Maximizing the CPU worker count.
+# In "Power Saver" mode at half the CPUs, we can process ~40 tokens / second at the 256 block size.
+# In "Performance" mode at the same block size we can process ~60 tokens / second.
+# I'm hoping to get to 120 tokens per second with using all of the CPUs.
+# ...
+# In reality, the gains are almost inconsequential,
+# even with maximizing the priority of the Python processes.
+NUM_WORKERS    = os.cpu_count()
+# NUM_WORKERS    = os.cpu_count() // 2
 
 #
 # Data paths
@@ -33,8 +42,8 @@ NUM_WORKERS    = os.cpu_count() // 2
 # Update CHECKPOINT_PATH locally in infer.py when testing DPO output
 CHECKPOINT_DIR      = "../data/checkpoints"
 CHECKPOINT_PATH     = Path(CHECKPOINT_DIR) / "latest.pt"
-DPO_OUTPUT_PATH     = Path("../data/checkpoints/dpo")
-DPO_CHECKPOINT_PATH = Path(CHECKPOINT_DIR) / "dpo/dpo_latest.pt"
+DPO_OUTPUT_PATH     = Path("../data/checkpoints")
+DPO_CHECKPOINT_PATH = Path(CHECKPOINT_DIR) / "latest.pt" # "dpo/dpo_latest.pt"
 
 LOGGER_NAME         = "llm"
 OUTPUT_DIR          = "../data/corpus"
@@ -51,7 +60,7 @@ DPO_PAIRS_PATH      = Path("../data/dpo_data/pairs.jsonl")
 # Chat Logging
 #
 
-LOG_DIR = Path("../chat_logs")
+LOG_DIR = Path("../data/chat_logs")
 LOG_DIR.mkdir(exist_ok=True)
 
 LOG_FILE = LOG_DIR / "chat.jsonl"

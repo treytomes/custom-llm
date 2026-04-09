@@ -77,16 +77,9 @@ import config
 console = Console()
 
 logger = logging.getLogger(__name__)
-# logger.setLevel(logging.INFO)
-
-# handler = logging.FileHandler("corpus_generation.log")
-# formatter = logging.Formatter("%(asctime)s | %(message)s")
-# handler.setFormatter(formatter)
-
-# logger.addHandler(handler)
-
 
 AZURE_MODEL = "Mistral-Large-3"
+
 
 # ───────────────────────────────────────────────────────────
 # SYSTEM PROMPT
@@ -207,7 +200,6 @@ or
 # ───────────────────────────────────────────────────────────
 
 def build_client(endpoint, api_key):
-
     return AzureOpenAI(
         azure_endpoint=endpoint,
         api_key=api_key,
@@ -219,7 +211,6 @@ def build_client(endpoint, api_key):
 # ───────────────────────────────────────────────────────────
 
 def build_messages(chapter_text, voice_excerpt):
-
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
         {
@@ -378,7 +369,6 @@ def run_pass(client, chapters, voice_excerpt, output_dir,
         TimeElapsedColumn(),
         console=console,
     ) as progress:
-
         task_id = progress.add_task(
             "generating",
             total=len(tasks),
