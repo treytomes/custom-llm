@@ -126,21 +126,18 @@ def stream_display(model, tokenizer, prompt, device):
 # ── Chat REPL (called from main.py) ───────────────────────────────────────────
 
 
-def run_chat_repl_one_shot():
-    model, tokenizer, device = initialize("One-Shot Interactive Chat")
+# def run_chat_repl_one_shot():
+#     model, tokenizer, device = initialize("One-Shot Interactive Chat")
+#     try:
+#         while True:
+#             user_text = prompt_user()
+#             if not user_text:
+#                 continue
 
-    try:
-        while True:
-            user_text = prompt_user()
-            if not user_text:
-                continue
-
-            prompt = format_prompt(user_text)
-            output = stream_display(model, tokenizer, prompt, device)
-            log_chat(user_text, output)
-
-    except KeyboardInterrupt:
-        console.print("\n[bold red]Exiting chat.[/bold red]\n")
+#             prompt = format_prompt(user_text)
+#             output = stream_display(model, tokenizer, prompt, device)
+#     except KeyboardInterrupt:
+#         console.print("\n[bold red]Exiting chat.[/bold red]\n")
 
 
 def generate_dpo_pair(user_text, last_prompt, last_response):
@@ -154,10 +151,19 @@ def generate_dpo_pair(user_text, last_prompt, last_response):
         console.print("[yellow]No previous exchange to correct.[/yellow]")
         return
 
+    # ── Normalize prompt text ───────────────────────────────
+    prompt_text = last_prompt.strip()
+
+    speaker_prefix = f"[{config.USER_NAME}] "
+    if prompt_text.startswith(speaker_prefix):
+        prompt_text = prompt_text[len(speaker_prefix):]
+
+    prompt_text = prompt_text.rstrip("\n")
+
     entry = {
-        "prompt": last_prompt,
-        "chosen": correction,
-        "rejected": last_response,
+        "prompt": prompt_text,
+        "chosen": correction.strip(),
+        "rejected": last_response.strip(),
         "notes": None,
         "session": "",
         "turn": 0,
