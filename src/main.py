@@ -21,6 +21,7 @@ from train.data import (
 )
 from train.train import run_training
 from corpus.transform_corpus import generate_dialogue_corpus
+from corpus.generate_chat_corpus import generate_chat_corpus
 
 load_dotenv()
 
@@ -255,8 +256,6 @@ def train():
 
     logger.info("Starting training run...\n")
 
-    from train.train import run_training
-
     with Live(refresh_per_second=4) as live:
         for stats in run_training():
             live.update(render_training_dashboard(stats))
@@ -277,8 +276,11 @@ def corpus_generate_dialogue(
     book: str = None,
 ):
     """
-    Generate conversational training data using the teacher model.
+    Generate conversational training data from the teacher model
+    and chat logs.
     """
+
+    generate_chat_corpus()
 
     generate_dialogue_corpus(
         chapters_dir=config.CHAPTERS_DIR,

@@ -9,8 +9,7 @@ Convert chat logs into a format that can be inserted into the pre-training conve
 import json
 from pathlib import Path
 
-CHAT_LOG_DIR = Path("../data/chat_logs")
-DIALOGUE_DIR = Path("../data/corpus/dialogue")
+import config
 
 
 def convert_log_to_transcript(jsonl_path: Path, output_path: Path):
@@ -44,8 +43,8 @@ def convert_log_to_transcript(jsonl_path: Path, output_path: Path):
         f.write("\n")
 
 
-def main():
-    files = sorted(CHAT_LOG_DIR.glob("chat*.jsonl"))
+def generate_chat_corpus():
+    files = sorted(config.LOG_DIR.glob("chat*.jsonl"))
 
     if not files:
         print("No chat log files found.")
@@ -53,11 +52,7 @@ def main():
 
     for jsonl_file in files:
         out_name = jsonl_file.stem + ".txt"
-        out_path = DIALOGUE_DIR / out_name
+        out_path = Path(config.DIALOGUE_OUTPUT_DIR) / out_name
 
         convert_log_to_transcript(jsonl_file, out_path)
         print(f"Converted {jsonl_file.name} → {out_path.name}")
-
-
-if __name__ == "__main__":
-    main()

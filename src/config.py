@@ -61,7 +61,7 @@ DPO_PAIRS_PATH      = Path("../data/dpo_data/pairs.jsonl")
 #
 
 LOG_DIR = Path("../data/chat_logs")
-LOG_DIR.mkdir(exist_ok=True)
+LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 LOG_FILE = LOG_DIR / "chat.jsonl"
 
