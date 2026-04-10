@@ -28,9 +28,6 @@ from train.dream_train import build_chunks, compute_loss
 logger = logging.getLogger(__name__)
 
 
-AZURE_MODEL = "Mistral-Large-3"
-
-
 # ───────────────────────────────────────────────────────────
 # CLIENT
 # ───────────────────────────────────────────────────────────
@@ -140,7 +137,7 @@ Output only the labeled exchanges.
 
 def teacher_cleanup(client, transcript):
     response = client.chat.completions.create(
-        model=AZURE_MODEL,
+        model=os.getenv("AZURE_MODEL_ID"),
         messages=[
             {"role": "system", "content": CLEANUP_PROMPT},
             {"role": "user", "content": transcript},

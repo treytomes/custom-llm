@@ -184,8 +184,8 @@ def build_estimator(endpoint: str, api_key: str) -> PyTorch:
         py_version="py310",
 
         environment={
-            "AZURE_MISTRAL_ENDPOINT": endpoint,
-            "AZURE_MISTRAL_KEY":      api_key,
+            "AZURE_AI_ENDPOINT": endpoint,
+            "AZURE_AI_KEY":      api_key,
         },
 
         hyperparameters={

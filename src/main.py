@@ -286,8 +286,8 @@ def corpus_generate_dialogue(
         chapters_dir=config.CHAPTERS_DIR,
         output_dir=config.DIALOGUE_OUTPUT_DIR,
         voice_file=config.VOICE_FILE,
-        endpoint=os.environ.get("AZURE_MISTRAL_ENDPOINT"),
-        api_key=os.environ.get("AZURE_MISTRAL_KEY"),
+        endpoint=os.environ.get("AZURE_AI_ENDPOINT"),
+        api_key=os.environ.get("AZURE_AI_KEY"),
         temperature=temperature,
         upload_s3=upload_s3,
         book=book,
@@ -306,8 +306,8 @@ def dream():
 
     run_dream(
         chat_log_path=chat_log_path,
-        endpoint=os.environ.get("AZURE_MISTRAL_ENDPOINT"),
-        api_key=os.environ.get("AZURE_MISTRAL_KEY"),
+        endpoint=os.environ.get("AZURE_AI_ENDPOINT"),
+        api_key=os.environ.get("AZURE_AI_KEY"),
         voice_file=config.VOICE_FILE,
         output_dir="../data/dreams",
     )

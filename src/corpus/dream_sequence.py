@@ -25,7 +25,6 @@ import datetime
 from openai import AzureOpenAI
 import config
 
-AZURE_MODEL = "Mistral-Large-3"
 
 # ───────────────────────────────────────────────────────────
 # CLIENT
@@ -199,7 +198,7 @@ def generate_dream(client, transcript, voice_excerpt):
     messages = build_messages(transcript, voice_excerpt)
 
     response = client.chat.completions.create(
-        model=AZURE_MODEL,
+        model=os.getenv("AZURE_MODEL_ID"),
         messages=messages,
         temperature=0.8,
         max_tokens=6000,

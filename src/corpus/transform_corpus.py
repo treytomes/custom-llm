@@ -42,8 +42,8 @@ pip install openai boto3 python-dotenv
 
 Environment (.env):
 
-AZURE_MISTRAL_ENDPOINT=...
-AZURE_MISTRAL_KEY=...
+AZURE_AI_ENDPOINT=...
+AZURE_AI_KEY=...
 
 Usage
 ────────────────────────────────
@@ -77,8 +77,6 @@ import config
 console = Console()
 
 logger = logging.getLogger(__name__)
-
-AZURE_MODEL = "Mistral-Large-3"
 
 
 # ───────────────────────────────────────────────────────────
@@ -300,7 +298,7 @@ def transform(client, chapter_text, voice_excerpt, temperature):
     messages = build_messages(chapter_text, voice_excerpt)
 
     response = client.chat.completions.create(
-        model=AZURE_MODEL,
+        model=os.getenv("AZURE_MODEL_ID"),
         messages=messages,
         temperature=temperature,
         max_tokens=8000
