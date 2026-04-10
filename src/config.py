@@ -13,9 +13,9 @@ MODEL_NAME     = "Scout"
 
 # The current max steps is 150,932 based on the corpus size.
 
-MAX_STEPS        = 70000
+MAX_STEPS        = 60000
 
-# Increased warmup from 100 to 500 to give Scout time to adjust to the doubled block size.
+# Increased warmup from 100 to 500 to give Scout time to adjust to the increased block size.
 WARMUP_STEPS     = 500
 
 LEARNING_RATE    = 3e-4
@@ -43,7 +43,7 @@ NUM_WORKERS    = os.cpu_count()
 CHECKPOINT_DIR      = "../data/checkpoints"
 CHECKPOINT_PATH     = Path(CHECKPOINT_DIR) / "latest.pt"
 DPO_OUTPUT_PATH     = Path("../data/checkpoints")
-DPO_CHECKPOINT_PATH = Path(CHECKPOINT_DIR) / "latest.pt" # "dpo/dpo_latest.pt"
+DPO_CHECKPOINT_PATH = CHECKPOINT_PATH # Path(CHECKPOINT_DIR) / "dpo/dpo_latest.pt"
 
 LOGGER_NAME         = "llm"
 OUTPUT_DIR          = "../data/corpus"
@@ -85,7 +85,7 @@ MAX_NEW_TOKENS = 128
 # | 0.5–0.7 | balanced |
 # | 0.8–1.0 | creative |
 # | >1.0 | chaotic |
-TEMPERATURE    = 0.6   # Try raising this later in the training cycle.
+TEMPERATURE    = 0.5   # Try raising this later in the training cycle.
 
 # Top‑K sampling restricts token choices to the K most probable tokens.
 # Example:
@@ -96,7 +96,7 @@ TEMPERATURE    = 0.6   # Try raising this later in the training cycle.
 # * nonsense outputs
 # * rare-token glitches
 # * degenerate sampling loops
-TOP_K          = 40
+TOP_K          = 20
 
 # This penalizes tokens that already appeared earlier in the response.
 # Typical values:
@@ -105,7 +105,7 @@ TOP_K          = 40
 # | 1.0 | off |
 # | 1.1 | mild |
 # | 1.2–1.5 | strong |
-REP_PENALTY    = 1.1
+REP_PENALTY    = 1.8
 
 #
 # Context and Training Parameters
@@ -118,7 +118,9 @@ REP_PENALTY    = 1.1
 # Effects:
 # * smaller → faster training
 # * larger → better reasoning and memory
-BLOCK_SIZE = 512
+BLOCK_SIZE = 384
+# Training up from 256 to 384 for 128 steps, then we'll take another 128.
+# Training up from 256 to 512 all in one go destabilize the network.
 
 # This is how many training sequences are processed per optimization step.
 # i.e. the tokens / step throughput
