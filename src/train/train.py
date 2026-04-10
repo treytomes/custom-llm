@@ -6,6 +6,8 @@ The application entry point (main.py) is responsible for launching it
 and handling user-facing logging / dashboard output.
 """
 
+import csv
+import datetime
 import logging
 import time
 import torch
@@ -117,7 +119,6 @@ def try_resume_checkpoint(model, optimizer, scheduler, checkpoint_dir, device):
 
 @torch.no_grad()
 def validation_loss(model, val_tokens, device, num_batches=20):
-
     model.eval()
 
     loader = build_dataloader(
@@ -158,8 +159,23 @@ def validation_loss(model, val_tokens, device, num_batches=20):
 # Training entry point
 # ─────────────────────────────────────────────────────────────
 
-def run_training():
 
+def get_now():
+    return datetime.datetime.now(datetime.UTC)
+
+
+def build_log_path(prefix="training"):
+    today = get_now().strftime("%Y-%m-%d")
+
+    idx = 1
+    while True:
+        path = config.TRAINING_LOG_DIR / f"{prefix}_{today}_{idx}.jsonl"
+        if not path.exists():
+            return path
+        idx += 1
+
+
+def run_training():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info("Device: %s", device)
 
@@ -171,6 +187,27 @@ def run_training():
     checkpoint_dir = Path(config.CHECKPOINT_DIR)
 
     val_token_file = token_file.parent / "corpus_val.pt"
+
+    # Setup CSV logging.
+    metrics_path = build_log_path()
+    csv_file = open(metrics_path, "a", newline="")
+    csv_writer = csv.DictWriter(
+        csv_file,
+        fieldnames=[
+            "step",
+            "loss",
+            "avg_loss",
+            "lr",
+            "val_loss",
+            "elapsed",
+            "tokens_per_sec",
+            "eta",
+        ],
+    )
+
+    # Write header if file is new
+    if csv_file.tell() == 0:
+        csv_writer.writeheader()
 
     # ── Load tokens ──────────────────────────────────────────
 
@@ -317,7 +354,7 @@ def run_training():
             ):
                 val_loss = validation_loss(model, val_tokens, device)
 
-            yield {
+            metrics = {
                 "step": step,
                 "loss": loss.item(),
                 "avg_loss": avg_loss,
@@ -327,6 +364,11 @@ def run_training():
                 "tokens_per_sec": tokens_per_sec,
                 "eta": eta_seconds,
             }
+
+            csv_writer.writerow(metrics)
+            csv_file.flush()
+
+            yield metrics
 
         # Checkpoint
 
@@ -348,6 +390,7 @@ def run_training():
 
         step += 1
 
+    csv_file.close()
     logger.info("Training complete.")
 
     save_checkpoint(

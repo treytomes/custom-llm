@@ -46,6 +46,7 @@ DPO_OUTPUT_PATH     = Path("../data/checkpoints")
 DPO_CHECKPOINT_PATH = CHECKPOINT_PATH # Path(CHECKPOINT_DIR) / "dpo/dpo_latest.pt"
 
 LOGGER_NAME         = "llm"
+TRAINING_LOG_DIR    = Path("../data/training_log")
 OUTPUT_DIR          = "../data/corpus"
 CORPUS_DIR          = Path(OUTPUT_DIR) / "dialogue"
 CORPUS_TOKEN_FILE   = "corpus.pt"
