@@ -50,6 +50,7 @@ LOGGER_NAME         = "llm"
 TRAINING_LOG_DIR    = Path("../data/training_log")
 TRAINING_LOG_DIR.mkdir(parents=True, exist_ok=True)
 
+DATA_DIR            = Path("../data")
 OUTPUT_DIR          = "../data/corpus"
 CORPUS_DIR          = Path(OUTPUT_DIR) / "dialogue"
 CORPUS_TOKEN_FILE   = "corpus.pt"
