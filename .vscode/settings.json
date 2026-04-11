@@ -15,6 +15,7 @@
 		"mistralai",
 		"multinomial",
 		"pycache",
+		"resourcegroups",
 		"safetensors",
 		"sentencepiece",
 		"typer",

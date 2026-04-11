@@ -90,7 +90,7 @@ MAX_NEW_TOKENS = 128
 # | 0.5–0.7 | balanced |
 # | 0.8–1.0 | creative |
 # | >1.0 | chaotic |
-TEMPERATURE    = 0.5   # Try raising this later in the training cycle.
+TEMPERATURE    = 0.7   # Try raising this later in the training cycle.
 
 # Top‑K sampling restricts token choices to the K most probable tokens.
 # Example:
@@ -101,7 +101,7 @@ TEMPERATURE    = 0.5   # Try raising this later in the training cycle.
 # * nonsense outputs
 # * rare-token glitches
 # * degenerate sampling loops
-TOP_K          = 20
+TOP_K          = 40
 
 # This penalizes tokens that already appeared earlier in the response.
 # Typical values:
@@ -110,7 +110,7 @@ TOP_K          = 20
 # | 1.0 | off |
 # | 1.1 | mild |
 # | 1.2–1.5 | strong |
-REP_PENALTY    = 1.8
+REP_PENALTY    = 1.3
 
 #
 # Context and Training Parameters

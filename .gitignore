@@ -3,6 +3,7 @@ __pycache__
 checkpoints
 custom-llm-env
 data
+hf_cache
 tmp
 
 *.log
