@@ -8,7 +8,6 @@ import config
 
 
 logger = logging.getLogger(__name__)
-HF_CACHE_DIR = Path("../hf_cache")
 
 
 def load_tokenizer():
@@ -17,13 +16,13 @@ def load_tokenizer():
         # Try loading strictly from local cache
         return AutoTokenizer.from_pretrained(
             config.TOKENIZER_NAME,
-            cache_dir=HF_CACHE_DIR,
+            cache_dir=config.HUGGINGFACE_CACHE_PATH,
             local_files_only=True,
         )
     except Exception:
         # If not cached yet, download and store in cache
         tokenizer = AutoTokenizer.from_pretrained(
             config.TOKENIZER_NAME,
-            cache_dir=HF_CACHE_DIR,
+            cache_dir=config.HUGGINGFACE_CACHE_PATH,
         )
         return tokenizer
