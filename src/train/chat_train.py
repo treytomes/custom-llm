@@ -13,6 +13,7 @@ Pipeline
 
 import json
 import logging
+import os
 import shutil
 import time
 import torch
@@ -187,7 +188,7 @@ def validate_cleaned_chat(text):
         1 for l in lines if l.startswith(f"[{config.MODEL_NAME}]")
     )
 
-    if user_turns < 3 or scout_turns < 3:
+    if user_turns < 1 or scout_turns < 1:
         return False
 
     return True

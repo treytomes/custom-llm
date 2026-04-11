@@ -19,10 +19,12 @@ Allow Scout to process the emotional and conceptual meaning of the day’s
 interactions before the data is later used in training.
 """
 
-import json
-from pathlib import Path
 import datetime
+import json
+import os
+from pathlib import Path
 from openai import AzureOpenAI
+
 import config
 
 

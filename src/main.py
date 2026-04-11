@@ -1,5 +1,6 @@
 # main.py
 
+import argparse
 import logging
 import os
 import typer
@@ -27,6 +28,29 @@ load_dotenv()
 
 app = typer.Typer()
 
+
+
+# ---------------------------------------------------------
+# SageMaker initialization
+
+def apply_runtime_overrides():
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--data_dir")
+    parser.add_argument("--output_dir")
+    parser.add_argument("--s3_bucket")
+
+    args, _ = parser.parse_known_args()
+
+    if args.data_dir:
+        config.DATA_PATH = str(Path(args.data_dir) / "corpus.pt")
+
+    if args.output_dir:
+        config.OUTPUT_DIR = args.output_dir
+
+    if args.s3_bucket:
+        config.S3_BUCKET = args.s3_bucket
+
+
 # ---------------------------------------------------------
 # logging setup
 
@@ -41,7 +65,6 @@ logger = logging.getLogger(config.LOGGER_NAME)
 
 # ---------------------------------------------------------
 # reporting helpers
-
 
 def report_dpo_training_capacity(pairs, target_steps=None):
     pair_count = len(pairs)
@@ -354,4 +377,5 @@ def fine_tune():
 # ---------------------------------------------------------
 
 if __name__ == "__main__":
+    apply_runtime_overrides()
     app()
