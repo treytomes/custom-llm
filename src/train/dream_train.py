@@ -20,7 +20,11 @@ from pathlib import Path
 
 import config
 from ai_client.tokenizer import load_tokenizer
-from model.loader import init_model, load_checkpoint
+from model.loader import 
+
+DREAM_TEMPERATURE = 0.9
+DREAM_TOP_K = 50  
+DREAM_REP_PENALTY = 1.1
 
 logger = logging.getLogger(__name__)
 
@@ -49,15 +53,60 @@ def load_recent_dreams(dream_dir: Path, window: int = 5):
     return "\n\n".join(texts)
 
 
-def build_chunks(tokenizer, text, block_size, overlap=2):
+def build_chunks(tokenizer: TokenizersBackend | SentencePieceBackend, text: str, block_size: int, overlap: int = 2) -> list[torch.Tensor]:
+    """
+    Convert a transcript containing model reasoning turns into tokenized training chunks.
+
+    The input text is expected to contain lines formatted like:
+
+        [MODEL_NAME] visible model response
+
+        [Inner] hidden reasoning or reflection
+
+    The function groups a visible model reply followed by its inner reasoning
+    into a single "exchange". Exchanges are then packed into chunks whose
+    token length does not exceed `block_size`. A small overlap between chunks
+    is maintained so that adjacent chunks share a few exchanges, preserving
+    conversational continuity during training.
+
+    Parameters
+    ----------
+    tokenizer
+        HuggingFace tokenizer used to convert text into token IDs.
+    text
+        Raw transcript text containing model and inner reasoning lines.
+    block_size
+        Maximum number of tokens allowed in a training chunk.
+    overlap
+        Number of exchanges that overlap between adjacent chunks.
+
+    Returns
+    -------
+    list[torch.Tensor]
+        A list of tensors containing token IDs. Each tensor represents one
+        training chunk suitable for autoregressive language model training.
+    """
+
+    # Split transcript into non‑empty lines.
     lines = [l.strip() for l in text.splitlines() if l.strip()]
 
+    # Keep only model outputs and inner reasoning lines
+    # (user messages are not included in this training stream)
     turns = [
         l for l in lines
         if l.startswith(f"[{config.MODEL_NAME}]") or l.startswith("[Inner]")
     ]
 
-    # Build Scout–Inner exchanges
+    # ----------------------------------------------------------
+    # Step 1: Build exchanges.
+    #
+    # An exchange is:
+    #   [MODEL_NAME] visible reply
+    #   [Inner] reasoning
+    #
+    # These two lines are paired together so reasoning remains
+    # attached to the response it explains.
+    # ----------------------------------------------------------
     exchanges = []
     i = 0
     while i < len(turns) - 1:
@@ -65,9 +114,17 @@ def build_chunks(tokenizer, text, block_size, overlap=2):
             exchanges.append(turns[i] + "\n" + turns[i+1])
             i += 2
         else:
+            # If a reasoning line is missing or ordering is unusual,
+            # keep the single line as its own exchange.
             exchanges.append(turns[i])
             i += 1
 
+    # ----------------------------------------------------------
+    # Step 2: Pack exchanges into token chunks.
+    #
+    # Each chunk must stay within block_size tokens.
+    # Exchanges are added until the token limit is reached.
+    # ----------------------------------------------------------
     chunks = []
     i = 0
 
@@ -78,6 +135,8 @@ def build_chunks(tokenizer, text, block_size, overlap=2):
 
         while j < len(exchanges):
             ex = exchanges[j]
+
+            # Estimate token count if this exchange were added.
             ex_tokens = tokenizer.encode(ex + "\n", add_special_tokens=False)
 
             if tokens_used + len(ex_tokens) > block_size:
@@ -87,14 +146,22 @@ def build_chunks(tokenizer, text, block_size, overlap=2):
             tokens_used += len(ex_tokens)
             j += 1
 
+        # Convert accumulated exchanges into token IDs.
         if current:
             chunk_text = "\n".join(current)
             chunk_tokens = tokenizer.encode(chunk_text, add_special_tokens=False)
             chunks.append(torch.tensor(chunk_tokens, dtype=torch.long))
 
+        # If we've reached the end of the transcript we stop.
         if j == len(exchanges):
             break
 
+        # ------------------------------------------------------
+        # Step 3: Advance window with overlap
+        #
+        # Instead of jumping directly to j, we step back by
+        # `overlap` exchanges so adjacent chunks share context.
+        # ------------------------------------------------------
         i = max(j - overlap, i + 1)
 
     return chunks
