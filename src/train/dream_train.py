@@ -17,10 +17,10 @@ import time
 import torch
 import torch.nn.functional as F
 from pathlib import Path
-from transformers import AutoTokenizer
 
-from model.loader import init_model, load_checkpoint
 import config
+from ai_client.tokenizer import load_tokenizer
+from model.loader import init_model, load_checkpoint
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +130,7 @@ def run_dream_training(
     logger.info("Device     : %s", device)
     logger.info("═" * 60)
 
-    tokenizer = AutoTokenizer.from_pretrained(config.TOKENIZER_NAME)
+    tokenizer = load_tokenizer()
 
     text = load_recent_dreams(dream_dir)
 

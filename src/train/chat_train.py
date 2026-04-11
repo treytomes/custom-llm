@@ -19,9 +19,9 @@ import time
 import torch
 from pathlib import Path
 from openai import AzureOpenAI
-from transformers import AutoTokenizer
 
 import config
+from ai_client.tokenizer import load_tokenizer
 from model.loader import init_model, load_checkpoint
 from train.dream_train import build_chunks, compute_loss
 
@@ -228,7 +228,7 @@ def run_chat_training(
     logger.info("Device     : %s", device)
     logger.info("═" * 60)
 
-    tokenizer = AutoTokenizer.from_pretrained(config.TOKENIZER_NAME)
+    tokenizer = load_tokenizer()
 
     if not chat_path.exists():
         raise FileNotFoundError(f"Chat transcript not found: {chat_path}")

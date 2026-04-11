@@ -5,9 +5,9 @@ Shared model loading.
 """
 
 import torch
-from transformers import AutoTokenizer
 
 import config
+from ai_client.tokenizer import load_tokenizer
 from .model import GPT
 
 
@@ -46,7 +46,7 @@ def init_model(vocab_size, device):
 
 
 def load_model(checkpoint_path, device):
-    tokenizer = AutoTokenizer.from_pretrained(config.TOKENIZER_NAME)
+    tokenizer = load_tokenizer()
     vocab_size = tokenizer.vocab_size
 
     model = init_model(vocab_size, device)

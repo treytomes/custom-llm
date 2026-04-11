@@ -54,9 +54,9 @@ import argparse
 
 from train.data import tokenize_corpus
 from train.train import main as train_main
-from transformers import AutoTokenizer
 
 import config
+from ai_client.tokenizer import load_tokenizer
 
 
 # -------------------------------------------------------------
@@ -144,7 +144,7 @@ def main():
 
     print(f"Loading tokenizer: {tokenizer_name}")
 
-    tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+    tokenizer = load_tokenizer()
 
     # Load the tokenizer from the pretrained model repository,
     # which provides tokenization rules and vocabulary needed

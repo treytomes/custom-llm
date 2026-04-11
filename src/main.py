@@ -7,22 +7,23 @@ import typer
 
 from pathlib import Path
 from rich.logging import RichHandler
-from transformers import AutoTokenizer
 from rich.live import Live
 from rich.table import Table
 from rich.panel import Panel
 from dotenv import load_dotenv
 
 import config
+from ai_client.tokenizer import load_tokenizer
 from chat.repl import run_chat_repl
+from corpus.transform_corpus import generate_dialogue_corpus
+from corpus.generate_chat_corpus import generate_chat_corpus
 from train.data import (
     corpus_needs_tokenization,
     load_token_tensor,
     tokenize_corpus,
 )
 from train.train import run_training
-from corpus.transform_corpus import generate_dialogue_corpus
-from corpus.generate_chat_corpus import generate_chat_corpus
+
 
 load_dotenv()
 
@@ -232,8 +233,7 @@ def corpus_prepare():
     output_dir = Path(config.OUTPUT_DIR)
     token_file = output_dir / config.CORPUS_TOKEN_FILE
 
-    logger.info("Loading tokenizer: %s", config.TOKENIZER_NAME)
-    tok = AutoTokenizer.from_pretrained(config.TOKENIZER_NAME)
+    tok = load_tokenizer()
 
     if corpus_needs_tokenization(corpus_dir, token_file):
         logger.info("Tokenizing corpus...")

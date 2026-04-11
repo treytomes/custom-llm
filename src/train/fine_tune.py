@@ -9,13 +9,12 @@ import json
 import time
 import logging
 import random
-from pathlib import Path
-
 import torch
 import torch.nn.functional as F
-from transformers import AutoTokenizer
+from pathlib import Path
 
 import config
+from ai_client.tokenizer import load_tokenizer
 from model.model import GPT
 from model.loader import (
     init_model,
@@ -106,7 +105,7 @@ def run_dpo_fine_tune(
 
     logger.info("Loaded %d preference pairs", len(pairs))
 
-    tokenizer = AutoTokenizer.from_pretrained(config.TOKENIZER_NAME)
+    tokenizer = load_tokenizer()
 
     if not checkpoint_path.exists():
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")

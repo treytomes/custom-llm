@@ -15,7 +15,6 @@ import torch.nn.functional as F
 from pathlib import Path
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import LambdaLR, CosineAnnealingLR, SequentialLR
-from transformers import AutoTokenizer
 
 import config
 from model.loader import (
@@ -23,6 +22,7 @@ from model.loader import (
     load_checkpoint,
 )
 from .data import load_token_tensor, build_dataloader
+from ai_client.tokenizer import load_tokenizer
 
 
 logger = logging.getLogger(__name__)
@@ -88,25 +88,6 @@ def try_resume_checkpoint(model, optimizer, scheduler, checkpoint_dir, device):
     checkpoint, state = load_checkpoint(latest, model, device)
 
     step = checkpoint.get("step", 0)
-
-    # Restore optimizer
-    # try:
-    #     optimizer.load_state_dict(checkpoint["optimizer"])
-    #     logger.info("Optimizer state restored.")
-    # except Exception:
-    #     logger.warning("Optimizer state incompatible — rebuilding optimizer.")
-
-    # Restore scheduler if possible
-    # if "scheduler" in checkpoint:
-    #     try:
-    #         scheduler.load_state_dict(checkpoint["scheduler"])
-    #         logger.info("Scheduler state restored.")
-    #     except Exception:
-    #         logger.warning("Scheduler incompatible — rebuilding scheduler.")
-    #         scheduler.last_epoch = step
-    # else:
-    #     logger.info("No scheduler state in checkpoint — advancing scheduler.")
-    #     scheduler.last_epoch = step
 
     logger.info("Resumed from step %d", step)
 
@@ -230,7 +211,7 @@ def run_training():
     logger.info("Loading tokenizer: %s", config.TOKENIZER_NAME)
 
     if vocab_size is None:
-        tokenizer = AutoTokenizer.from_pretrained(config.TOKENIZER_NAME)
+        tokenizer = load_tokenizer()
         vocab_size = tokenizer.vocab_size
 
     # ── DataLoader ───────────────────────────────────────────
