@@ -66,13 +66,13 @@ def generate(model, tokenizer, prompt, device):
 
         preview = tokenizer.decode(buffer_ids, skip_special_tokens=True).strip()
 
-        # # Detect baton pass like "Trey]" or "Mariam]"
-        # if preview.endswith("]"):
-        #     return "<silence>"
+        # Detect baton pass like "Trey]" or "Mariam]"
+        if preview.endswith("Trey]"):
+            return "<silence>"
 
-        # # Detect new speaker tag
-        # if "[" in preview:
-        #     return "<silence>"
+        # Detect new speaker tag
+        if "[Trey" in preview:
+            return "<silence>"
 
         # Once buffer reaches 3 tokens, release it
         if len(buffer_ids) >= 3:
@@ -124,16 +124,16 @@ def stream_generate(model, tokenizer, prompt, device):
         preview = tokenizer.decode(buffer_ids, skip_special_tokens=True).strip()
 
         # Baton pass detection
-        # if preview.endswith("]"):
-        #     if not generated_ids:
-        #         yield "<silence>"
-        #     return
+        if preview.endswith("Trey]"):
+            if not generated_ids:
+                yield "<silence>"
+            return
 
         # Speaker tag detection
-        # if "[" in preview:
-        #     if not generated_ids:
-        #         yield "<silence>"
-        #     return
+        if "[Trey" in preview:
+            if not generated_ids:
+                yield "<silence>"
+            return
 
         # Release buffer once safe
         if len(buffer_ids) >= 3:
