@@ -10,7 +10,7 @@ import config
 logger = logging.getLogger(__name__)
 
 
-def load_tokenizer():
+def load_tokenizer() -> TokenizersBackend | SentencePieceBackend:
     logger.info("Loading tokenizer: %s", config.TOKENIZER_NAME)
     try:
         # Try loading strictly from local cache
