@@ -190,19 +190,25 @@ def begin_dreaming(log_file: str):
     )
 
     if dream_path is not None:
-        run_dream_training(
-            Path("../data/dreams"),
-            config.CHECKPOINT_PATH
-        )
+        try:
+            run_dream_training(
+                Path("../data/dreams"),
+                config.CHECKPOINT_PATH
+            )
+        except ValueError as e:
+            console.print(f"[red]{e}[/red]\n")
 
         console.print("[dim]Cleaning chat log for training...[/dim]\n")
 
-        run_chat_cleanup_and_training(
-            chat_log_path=log_file,
-            endpoint=os.environ.get("AZURE_AI_ENDPOINT"),
-            api_key=os.environ.get("AZURE_AI_KEY"),
-            checkpoint_path=config.CHECKPOINT_PATH,
-        )
+        try:
+            run_chat_cleanup_and_training(
+                chat_log_path=log_file,
+                endpoint=os.environ.get("AZURE_AI_ENDPOINT"),
+                api_key=os.environ.get("AZURE_AI_KEY"),
+                checkpoint_path=config.CHECKPOINT_PATH,
+            )
+        except ValueError as e:
+            console.print(f"[red]{e}[/red]\n")
 
     console.print(
         "\n[bold yellow]It's time to wake up.[/bold yellow]\n"
