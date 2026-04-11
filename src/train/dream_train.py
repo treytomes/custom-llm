@@ -22,10 +22,6 @@ import config
 from ai_client.tokenizer import load_tokenizer
 from model.loader import 
 
-DREAM_TEMPERATURE = 0.9
-DREAM_TOP_K = 50  
-DREAM_REP_PENALTY = 1.1
-
 logger = logging.getLogger(__name__)
 
 

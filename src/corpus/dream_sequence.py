@@ -28,6 +28,11 @@ import ai_client.azure
 import config
 
 
+DREAM_TEMPERATURE = 0.9
+DREAM_TOP_K = 50  
+DREAM_REP_PENALTY = 1.1
+
+
 # ───────────────────────────────────────────────────────────
 # READ JSONL CHAT LOG
 # ───────────────────────────────────────────────────────────
