@@ -4,6 +4,17 @@ import os
 from pathlib import Path
 
 #
+# Feature Flags
+#
+
+# If enabled, Mistral will scrub the day's chat for coherency before submitting it for fine-tuning.
+ENABLE_MISTRAL_CHAT_SCRUBBING = False
+
+# If enabled, Mistral will generate Scout's dream sequence based on the day's chat.
+# If disabled, Scout will attempt prompt continuations from "[Inner] " until her block size is reached.
+ENABLE_MISTRAL_LED_DREAMS = False
+
+#
 # Generation parameters (how the model speaks)
 #
 
@@ -126,6 +137,7 @@ LOG_FILE = LOG_DIR / "chat.jsonl"
 # * smaller → faster training
 # * larger → better reasoning and memory
 BLOCK_SIZE = 512
+DAY_CONTEXT_TOKENS = BLOCK_SIZE * 3 // 4
 
 # This is how many training sequences are processed per optimization step.
 # i.e. the tokens / step throughput
