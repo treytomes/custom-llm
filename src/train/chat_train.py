@@ -11,9 +11,11 @@ Pipeline
 6. Run short SFT training pass
 """
 
+import datetime
 import json
 import logging
 import os
+import re
 import shutil
 import time
 import torch
@@ -44,6 +46,32 @@ def build_client(endpoint, api_key):
 # ───────────────────────────────────────────────────────────
 # LOAD JSONL LOG
 # ───────────────────────────────────────────────────────────
+
+
+def get_next_chat_filename(base_dir):
+    base_dir = Path(base_dir)
+    base_dir.mkdir(parents=True, exist_ok=True)
+
+    today = datetime.datetime.now(datetime.UTC)
+    y = today.year
+    m = today.month
+    d = today.day
+
+    pattern = re.compile(
+        rf"chat_{y}_{m}_{d}_conversation_(\d+)\.txt"
+    )
+
+    max_index = 0
+    for f in base_dir.glob(f"chat_{y}_{m}_{d}_conversation_*.txt"):
+        match = pattern.match(f.name)
+        if match:
+            idx = int(match.group(1))
+            max_index = max(max_index, idx)
+
+    next_index = max_index + 1
+    filename = f"chat_{y}_{m}_{d}_conversation_{next_index}.txt"
+    return base_dir / filename
+
 
 def load_chat_pairs(path):
     pairs = []
@@ -371,10 +399,10 @@ def run_chat_cleanup_and_training(
         logger.info("Cleaned chat failed validation.")
         return
 
-    temp_dir="../tmp"
-    cleaned_path = save_cleaned_chat(cleaned, temp_dir)
-
-    logger.info(f"Cleaned transcript saved → {cleaned_path}")
+    chat_dir = Path("../data/chat_transcripts")
+    chat_path = get_next_chat_filename(chat_dir)
+    chat_path.write_text(cleaned, encoding="utf-8")
+    logger.info(f"Cleaned transcript saved → {chat_path}")
 
     # ── Ask user for approval ───────────────────────────────
 
@@ -382,13 +410,17 @@ def run_chat_cleanup_and_training(
 
     if decision not in ("y", "yes"):
         logger.info("Transcript rejected. Training aborted.")
+        try:
+            chat_path.unlink()
+        except FileNotFoundError:
+            pass
         return
 
     logger.info("Transcript accepted.")
     logger.info("Starting chat SFT training...")
 
     run_chat_training(
-        chat_path=cleaned_path,
+        chat_path=chat_path,
         checkpoint_path=checkpoint_path,
         steps=120,
         lr=1e-6,
