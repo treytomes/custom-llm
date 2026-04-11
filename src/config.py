@@ -13,7 +13,7 @@ MODEL_NAME     = "Scout"
 
 # The current max steps is 150,932 based on the corpus size.
 
-MAX_STEPS        = 60000
+MAX_STEPS        = 73000
 
 # Increased warmup from 100 to 500 to give Scout time to adjust to the increased block size.
 WARMUP_STEPS     = 500
@@ -21,8 +21,8 @@ WARMUP_STEPS     = 500
 LEARNING_RATE    = 3e-4
 MIN_LR         = 3e-5
 
-LOG_INTERVAL   = 20
-SAVE_INTERVAL  = 50
+LOG_INTERVAL   = 50
+SAVE_INTERVAL  = 100
 
 # Maximizing the CPU worker count.
 # In "Power Saver" mode at half the CPUs, we can process ~40 tokens / second at the 256 block size.
@@ -60,6 +60,8 @@ DIALOGUE_OUTPUT_DIR = "../data/corpus/dialogue"
 
 DATA_PATH           = Path(OUTPUT_DIR) / CORPUS_TOKEN_FILE
 DPO_PAIRS_PATH      = Path("../data/dpo_data/pairs.jsonl")
+
+HUGGINGFACE_CACHE_PATH = Path("../hf_cache")
 
 #
 # Chat Logging
@@ -123,9 +125,7 @@ REP_PENALTY    = 1.3
 # Effects:
 # * smaller → faster training
 # * larger → better reasoning and memory
-BLOCK_SIZE = 384
-# Training up from 256 to 384 for 128 steps, then we'll take another 128.
-# Training up from 256 to 512 all in one go destabilize the network.
+BLOCK_SIZE = 512
 
 # This is how many training sequences are processed per optimization step.
 # i.e. the tokens / step throughput
