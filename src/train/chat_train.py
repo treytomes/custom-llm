@@ -25,9 +25,28 @@ import ai_client.azure
 import config
 from ai_client.tokenizer import load_tokenizer
 from model.loader import init_model, load_checkpoint
-from train.dream_train import build_chunks, compute_loss
+from train.dream_train import compute_loss
+from train.train import save_checkpoint
+
+
+CHAT_FINE_TUNE_LR = 1e-6
+CHAT_FINE_TUNE_PASSES = 2
 
 logger = logging.getLogger(__name__)
+
+
+def calculate_chat_steps(text: str, tokenizer, min_steps: int = 50, max_steps: int = 300) -> int:
+    """
+    Calculate fine-tuning steps proportional to content length.
+    Targets approximately 2 passes over the material.
+    """
+    tokens = tokenizer.encode(text)
+    token_count = len(tokens)
+    
+    chunks = max(1, token_count // config.DAY_CONTEXT_TOKENS)
+    steps = chunks * CHAT_FINE_TUNE_PASSES
+    
+    return max(min_steps, min(steps, max_steps))
 
 
 # ───────────────────────────────────────────────────────────
@@ -61,7 +80,6 @@ def get_next_chat_filename(base_dir):
 
 def load_chat_pairs(path):
     pairs = []
-
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
             try:
@@ -87,7 +105,7 @@ def build_transcript(pairs):
     for prompt, response in pairs:
         lines.append(f"[{config.USER_NAME}] {prompt}")
         lines.append(f"[{config.MODEL_NAME}] {response}")
-    return "\n".join(lines)
+    return "\n\n".join(lines)
 
 
 # ───────────────────────────────────────────────────────────
@@ -151,6 +169,8 @@ Output only the labeled exchanges.
 # ───────────────────────────────────────────────────────────
 
 def teacher_cleanup(client, transcript):
+    logger.info("Running teacher cleanup...")
+    client = azure.build_client()
     return azure.generate(client, transcript, 0.2, 5000)
 
 
@@ -199,30 +219,109 @@ def validate_cleaned_chat(text):
 
 
 # ───────────────────────────────────────────────────────────
-# SAVE CLEANED TRANSCRIPT
-# ───────────────────────────────────────────────────────────
-
-def save_cleaned_chat(text, output_dir, chat_filename="cleaned_chat.txt"):
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    path = output_dir / chat_filename
-    path.write_text(text, encoding="utf-8")
-    return path
-
-
-# ───────────────────────────────────────────────────────────
 # MAIN PIPELINE
 # ───────────────────────────────────────────────────────────
+
+def build_chunks(
+    tokenizer: TokenizersBackend | SentencePieceBackend,
+    text: str,
+    block_size: int,
+    overlap: int = 3,
+) -> list[torch.Tensor]:
+    """
+    Build token chunks from a multi-speaker chat transcript.
+
+    The transcript may contain turns from:
+        [Trey]
+        [Scout]
+        [Inner]
+
+    Unlike dream training, no assumption is made about turn ordering.
+    The function treats the conversation as a sequential stream of
+    labeled turns and packs them into chunks that fit within
+    `block_size` tokens.
+
+    Parameters
+    ----------
+    tokenizer
+        HuggingFace tokenizer.
+    text : str
+        Transcript containing labeled speaker turns.
+    block_size : int
+        Maximum number of tokens per chunk.
+    overlap : int
+        Number of turns that overlap between adjacent chunks.
+
+    Returns
+    -------
+    list[torch.Tensor]
+        Tokenized training chunks.
+    """
+
+    # Split transcript into non-empty labeled turns
+    turns = [
+        l.strip()
+        for l in text.splitlines()
+        if l.strip().startswith("[") and "]" in l
+    ]
+
+    chunks = []
+    i = 0
+
+    while i < len(turns):
+
+        current_turns = []
+        tokens_used = 0
+        j = i
+
+        while j < len(turns):
+            turn = turns[j]
+            turn_tokens = tokenizer.encode(
+                turn + "\n",
+                add_special_tokens=False,
+            )
+
+            if tokens_used + len(turn_tokens) > block_size:
+                break
+
+            current_turns.append(turn)
+            tokens_used += len(turn_tokens)
+            j += 1
+
+        if current_turns:
+            chunk_text = "\n".join(current_turns)
+
+            token_ids = tokenizer.encode(
+                chunk_text,
+                add_special_tokens=False,
+            )
+
+            chunks.append(
+                torch.tensor(token_ids, dtype=torch.long)
+            )
+
+        if j == len(turns):
+            break
+
+        # Move forward but keep some overlapping turns
+        i = max(j - overlap, i + 1)
+
+    return chunks
+
 
 def run_chat_training(
     chat_path: Path,
     checkpoint_path: Path,
-    steps: int = 120,
-    lr: float = 1e-6,
 ):
-    from train.train import save_checkpoint
-
+    lr = CHAT_FINE_TUNE_LR
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    if not chat_path.exists():
+        raise FileNotFoundError(f"Chat transcript not found: {chat_path}")
+
+    text = chat_path.read_text(encoding="utf-8")
+    tokenizer = load_tokenizer()
+    steps = calculate_chat_steps(text, tokenizer)
 
     logger.info("═" * 60)
     logger.info("Chat training — %s", config.MODEL_NAME)
@@ -231,20 +330,13 @@ def run_chat_training(
     logger.info("LR         : %.2e", lr)
     logger.info("Device     : %s", device)
     logger.info("═" * 60)
-
-    tokenizer = load_tokenizer()
-
-    if not chat_path.exists():
-        raise FileNotFoundError(f"Chat transcript not found: {chat_path}")
-
-    text = chat_path.read_text(encoding="utf-8")
+    input("Press <Enter> to continue.")
 
     chunks = build_chunks(
         tokenizer,
         text,
         config.BLOCK_SIZE,
     )
-
     if not chunks:
         raise ValueError("No training chunks generated from chat transcript.")
 
@@ -341,47 +433,37 @@ def run_chat_training(
 
 def run_chat_cleanup_and_training(
     chat_log_path,
-    endpoint,
-    api_key,
     checkpoint_path
 ):
-    client = azure.build_client(endpoint, api_key)
-
     pairs = load_chat_pairs(chat_log_path)
-
     if not pairs:
         logger.info("No valid chat pairs found.")
         return
 
     transcript = build_transcript(pairs)
 
-    logger.info("Running teacher cleanup...")
-
-    teacher_output = teacher_cleanup(client, transcript)
-
-    cleaned = parse_cleaned_output(teacher_output)
+    if config.ENABLE_MISTRAL_CHAT_SCRUBBING:
+        teacher_output = teacher_cleanup(client, transcript)
+        transcript = parse_cleaned_output(teacher_output)
+        if not validate_cleaned_chat(transcript):
+            logger.info("Cleaned chat failed validation.")
+            return
 
     # ── Show transcript to user ─────────────────────────────
-
-    logger.info("──── Cleaned Transcript ────")
-    logger.info(cleaned)
+    logger.info("──────── Transcript ────────")
+    logger.info(transcript)
     logger.info("────────────────────────────")
-
-    if not validate_cleaned_chat(cleaned):
-        logger.info("Cleaned chat failed validation.")
-        return
 
     chat_dir = Path("../data/chat_transcripts")
     chat_path = get_next_chat_filename(chat_dir)
-    chat_path.write_text(cleaned, encoding="utf-8")
-    logger.info(f"Cleaned transcript saved → {chat_path}")
+    chat_path.write_text(transcript, encoding="utf-8")
+    logger.info(f"Transcript saved → {chat_path}")
 
     # ── Ask user for approval ───────────────────────────────
-
     decision = input("Accept this transcript for training? (y/n): ").strip().lower()
 
     if decision not in ("y", "yes"):
-        logger.info("Transcript rejected. Training aborted.")
+        logger.info("Transcript rejected. Training aborted. Deleting transcript.")
         try:
             chat_path.unlink()
         except FileNotFoundError:
@@ -394,8 +476,6 @@ def run_chat_cleanup_and_training(
     run_chat_training(
         chat_path=chat_path,
         checkpoint_path=checkpoint_path,
-        steps=120,
-        lr=1e-6,
     )
 
     logger.info("Chat training complete.")
