@@ -5,6 +5,7 @@ Provides a centralized connection to an Azure AI chat model.
 """
 
 import logging
+import os
 from openai import AzureOpenAI
 
 

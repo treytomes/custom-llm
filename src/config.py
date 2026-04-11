@@ -136,8 +136,9 @@ LOG_FILE = LOG_DIR / "chat.jsonl"
 # Effects:
 # * smaller → faster training
 # * larger → better reasoning and memory
-BLOCK_SIZE = 512
-DAY_CONTEXT_TOKENS = BLOCK_SIZE * 3 // 4
+BLOCK_SIZE           = 512
+DAY_CONTEXT_TOKENS   = BLOCK_SIZE * 3 // 4
+NIGHT_CONTEXT_TOKENS = BLOCK_SIZE - DAY_CONTEXT_TOKENS
 
 # This is how many training sequences are processed per optimization step.
 # i.e. the tokens / step throughput

@@ -17,10 +17,14 @@ import time
 import torch
 import torch.nn.functional as F
 from pathlib import Path
+from transformers import (
+    TokenizersBackend, 
+    SentencePieceBackend,
+)
 
 import config
 from ai_client.tokenizer import load_tokenizer
-from model.loader import 
+from model.loader import init_model
 
 logger = logging.getLogger(__name__)
 

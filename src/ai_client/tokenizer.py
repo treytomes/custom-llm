@@ -2,7 +2,11 @@
 
 import logging
 from pathlib import Path
-from transformers import AutoTokenizer
+from transformers import (
+    AutoTokenizer,
+    TokenizersBackend, 
+    SentencePieceBackend,
+)
 
 import config
 

@@ -20,6 +20,10 @@ import shutil
 import time
 import torch
 from pathlib import Path
+from transformers import (
+    TokenizersBackend, 
+    SentencePieceBackend,
+)
 
 import ai_client.azure
 import config
