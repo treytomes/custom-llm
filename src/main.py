@@ -293,6 +293,15 @@ def chat():
 
 
 @app.command()
+def corpus_generate_stories():
+    """
+    Generate story-telling prompts from novel chapters.
+    """
+    from corpus.generate_story_corpus import process_story_corpus
+    process_story_corpus(name_filter="Anne of Green Gables")
+
+
+@app.command()
 def corpus_generate_dialogue(
     temperature: float = 0.7,
     upload_s3: str = "",
