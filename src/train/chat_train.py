@@ -20,33 +20,19 @@ import shutil
 import time
 import torch
 from pathlib import Path
-from openai import AzureOpenAI
 
+import ai_client.azure
 import config
 from ai_client.tokenizer import load_tokenizer
 from model.loader import init_model, load_checkpoint
 from train.dream_train import build_chunks, compute_loss
 
-
 logger = logging.getLogger(__name__)
-
-
-# ───────────────────────────────────────────────────────────
-# CLIENT
-# ───────────────────────────────────────────────────────────
-
-def build_client(endpoint, api_key):
-    return AzureOpenAI(
-        azure_endpoint=endpoint,
-        api_key=api_key,
-        api_version="2024-05-01-preview",
-    )
 
 
 # ───────────────────────────────────────────────────────────
 # LOAD JSONL LOG
 # ───────────────────────────────────────────────────────────
-
 
 def get_next_chat_filename(base_dir):
     base_dir = Path(base_dir)
@@ -165,17 +151,7 @@ Output only the labeled exchanges.
 # ───────────────────────────────────────────────────────────
 
 def teacher_cleanup(client, transcript):
-    response = client.chat.completions.create(
-        model=os.getenv("AZURE_MODEL_ID"),
-        messages=[
-            {"role": "system", "content": CLEANUP_PROMPT},
-            {"role": "user", "content": transcript},
-        ],
-        temperature=0.2,
-        max_tokens=5000,
-    )
-
-    return response.choices[0].message.content
+    return azure.generate(client, transcript, 0.2, 5000)
 
 
 # ───────────────────────────────────────────────────────────
@@ -312,9 +288,7 @@ def run_chat_training(
     t0 = time.time()
 
     for step in range(steps):
-
         batch = chunks[step % len(chunks)].unsqueeze(0).to(device)
-
         loss = compute_loss(model, batch)
 
         optimizer.zero_grad()
@@ -329,7 +303,6 @@ def run_chat_training(
         total_loss += loss.item()
 
         if (step + 1) % 20 == 0:
-
             avg = total_loss / 20
             elapsed = time.time() - t0
 
@@ -363,7 +336,6 @@ def run_chat_training(
     )
 
     logger.info("Chat training complete")
-
     return checkpoint_dir / "latest.pt"
 
 
@@ -373,7 +345,7 @@ def run_chat_cleanup_and_training(
     api_key,
     checkpoint_path
 ):
-    client = build_client(endpoint, api_key)
+    client = azure.build_client(endpoint, api_key)
 
     pairs = load_chat_pairs(chat_log_path)
 

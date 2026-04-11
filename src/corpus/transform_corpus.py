@@ -66,12 +66,12 @@ python transform_corpus.py --book chapter01.txt
 
 import boto3
 from pathlib import Path
-from openai import AzureOpenAI
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn
 from rich.console import Console
 
+import ai_client.azure
 import config
 
 console = Console()
@@ -194,17 +194,6 @@ or
 """
 
 # ───────────────────────────────────────────────────────────
-# CLIENT
-# ───────────────────────────────────────────────────────────
-
-def build_client(endpoint, api_key):
-    return AzureOpenAI(
-        azure_endpoint=endpoint,
-        api_key=api_key,
-        api_version="2024-05-01-preview",
-    )
-
-# ───────────────────────────────────────────────────────────
 # PROMPT
 # ───────────────────────────────────────────────────────────
 
@@ -297,18 +286,10 @@ def validate(text):
 def transform(client, chapter_text, voice_excerpt, temperature):
     messages = build_messages(chapter_text, voice_excerpt)
 
-    response = client.chat.completions.create(
-        model=os.getenv("AZURE_MODEL_ID"),
-        messages=messages,
-        temperature=temperature,
-        max_tokens=8000
-    )
-
-    raw = response.choices[0].message.content
+    raw = azure.generate(client, messages, temperature, 8000)
     # TODO: If raw == None, run retry logic on the chat completion.
 
     cleaned = clean_output(raw)
-
     return split_conversations(cleaned)
 
 # ───────────────────────────────────────────────────────────
@@ -400,7 +381,7 @@ def generate_dialogue_corpus(
     book=None,
     workers=5,
 ):
-    client = build_client(endpoint, api_key)
+    client = azure.build_client(endpoint, api_key)
 
     voice_text = Path(voice_file).read_text()
     voice_excerpt = voice_text

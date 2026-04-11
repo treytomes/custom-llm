@@ -23,21 +23,10 @@ import datetime
 import json
 import os
 from pathlib import Path
-from openai import AzureOpenAI
 
+import ai_client.azure
 import config
 
-
-# ───────────────────────────────────────────────────────────
-# CLIENT
-# ───────────────────────────────────────────────────────────
-
-def build_client(endpoint, api_key):
-    return AzureOpenAI(
-        azure_endpoint=endpoint,
-        api_key=api_key,
-        api_version="2024-05-01-preview",
-    )
 
 # ───────────────────────────────────────────────────────────
 # READ JSONL CHAT LOG
@@ -198,15 +187,7 @@ def validate(text):
 
 def generate_dream(client, transcript, voice_excerpt):
     messages = build_messages(transcript, voice_excerpt)
-
-    response = client.chat.completions.create(
-        model=os.getenv("AZURE_MODEL_ID"),
-        messages=messages,
-        temperature=0.8,
-        max_tokens=6000,
-    )
-
-    text = response.choices[0].message.content
+    text = azure.generate(client, messages, 0.8, 6000)
 
     if text and validate(text):
         return text
@@ -218,7 +199,6 @@ def generate_dream(client, transcript, voice_excerpt):
 # ───────────────────────────────────────────────────────────
 
 def save_dream(text, output_dir):
-
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
