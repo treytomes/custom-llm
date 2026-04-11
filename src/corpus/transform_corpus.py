@@ -374,14 +374,12 @@ def generate_dialogue_corpus(
     chapters_dir,
     output_dir,
     voice_file,
-    endpoint,
-    api_key,
     temperature=0.7,
     upload_s3="",
     book=None,
     workers=5,
 ):
-    client = azure.build_client(endpoint, api_key)
+    client = azure.build_client()
 
     voice_text = Path(voice_file).read_text()
     voice_excerpt = voice_text

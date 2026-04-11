@@ -183,8 +183,6 @@ def begin_dreaming(log_file: str):
 
     dream_path = run_dream(
         chat_log_path=log_file,
-        endpoint=os.environ.get("AZURE_AI_ENDPOINT"),
-        api_key=os.environ.get("AZURE_AI_KEY"),
         voice_file=config.VOICE_FILE,
         output_dir="../data/dreams",
     )
@@ -203,8 +201,6 @@ def begin_dreaming(log_file: str):
         try:
             run_chat_cleanup_and_training(
                 chat_log_path=log_file,
-                endpoint=os.environ.get("AZURE_AI_ENDPOINT"),
-                api_key=os.environ.get("AZURE_AI_KEY"),
                 checkpoint_path=config.CHECKPOINT_PATH,
             )
         except ValueError as e:

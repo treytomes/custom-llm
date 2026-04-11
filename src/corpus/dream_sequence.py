@@ -216,8 +216,6 @@ def save_dream(text, output_dir):
 
 def run_dream(
     chat_log_path,
-    endpoint,
-    api_key,
     voice_file,
     output_dir,
 ) -> str:
@@ -225,7 +223,7 @@ def run_dream(
     Allow Scout to dream over the events of the day.
     """
     voice_excerpt = Path(voice_file).read_text()
-    client = build_client(endpoint, api_key)
+    client = build_client()
 
     records = load_chat_log(chat_log_path)
 
@@ -249,19 +247,10 @@ def run_dream(
 
 
 if __name__ == "__main__":
-
     import argparse
-
     parser = argparse.ArgumentParser()
-
     parser.add_argument("--chat_log", required=True)
-    parser.add_argument("--endpoint", required=True)
-    parser.add_argument("--api_key", required=True)
-
     args = parser.parse_args()
-
     run_dream(
         args.chat_log,
-        args.endpoint,
-        args.api_key
     )

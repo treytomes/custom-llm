@@ -8,6 +8,9 @@ import logging
 from openai import AzureOpenAI
 
 
+ENDPOINT = os.environ.get("AZURE_AI_ENDPOINT")
+API_KEY = os.environ.get("AZURE_AI_KEY")
+
 logger = logging.getLogger(__name__)
 
 
@@ -15,10 +18,10 @@ logger = logging.getLogger(__name__)
 # CLIENT
 # ───────────────────────────────────────────────────────────
 
-def build_client(endpoint: str, api_key: str) -> AzureOpenAI:
+def build_client() -> AzureOpenAI:
     return AzureOpenAI(
-        azure_endpoint=endpoint,
-        api_key=api_key,
+        azure_endpoint=ENDPOINT,
+        api_key=API_KEY,
         api_version="2024-05-01-preview",
     )
 
