@@ -33,61 +33,43 @@ def sample_next(logits, generated_tokens=None, rep_penalty=1.0):
 # ── Generation ────────────────────────────────────────────────────────────────
 
 
-def generate(model, tokenizer, prompt, device):
-    tokens = tokenizer.encode(prompt, return_tensors="pt").to(device)
-    eos_id = tokenizer.eos_token_id
-
-    generated_ids = []
-    buffer_ids = []
-
-    for _ in range(config.MAX_NEW_TOKENS):
-
-        tokens = tokens[:, -config.BLOCK_SIZE:]
-
-        with torch.no_grad():
-            logits = model(tokens)
-
-        logits = logits[:, -1, :]
-
-        next_token = sample_next(
-            logits,
-            generated_tokens=tokens[0],
-            rep_penalty=config.REP_PENALTY,
-        )
-
-        tokens = torch.cat([tokens, next_token], dim=1)
-
-        tok_id = next_token.item()
-
-        if eos_id is not None and tok_id == eos_id:
-            break
-
-        buffer_ids.append(tok_id)
-
-        preview = tokenizer.decode(buffer_ids, skip_special_tokens=True).strip()
-
-        # Detect baton pass like "Trey]" or "Mariam]"
-        if preview.endswith("Trey]"):
-            return "<silence>"
-
-        # Detect new speaker tag
-        if "[Trey" in preview:
-            return "<silence>"
-
-        # Once buffer reaches 3 tokens, release it
-        if len(buffer_ids) >= 3:
-            generated_ids.extend(buffer_ids)
-            buffer_ids.clear()
-
-    # Flush remaining buffer
-    generated_ids.extend(buffer_ids)
-
-    if not generated_ids:
-        return "<silence>"
-
-    text = tokenizer.decode(generated_ids, skip_special_tokens=True)
-
-    return text.strip()
+# def generate(model, tokenizer, prompt, device):
+#     tokens = tokenizer.encode(prompt, return_tensors="pt").to(device)
+#     eos_id = tokenizer.eos_token_id
+#     generated_ids = []
+#     buffer_ids = []
+#     for _ in range(config.MAX_NEW_TOKENS):
+#         tokens = tokens[:, -config.BLOCK_SIZE:]
+#         with torch.no_grad():
+#             logits = model(tokens)
+#         logits = logits[:, -1, :]
+#         next_token = sample_next(
+#             logits,
+#             generated_tokens=tokens[0],
+#             rep_penalty=config.REP_PENALTY,
+#         )
+#         tokens = torch.cat([tokens, next_token], dim=1)
+#         tok_id = next_token.item()
+#         if eos_id is not None and tok_id == eos_id:
+#             break
+#         buffer_ids.append(tok_id)
+#         preview = tokenizer.decode(buffer_ids, skip_special_tokens=True).strip()
+#         # Detect baton pass like "Trey]" or "Mariam]"
+#         if preview.endswith("Trey]"):
+#             return "<silence>"
+#         # Detect new speaker tag
+#         if "[Trey" in preview:
+#             return "<silence>"
+#         # Once buffer reaches 3 tokens, release it
+#         if len(buffer_ids) >= 3:
+#             generated_ids.extend(buffer_ids)
+#             buffer_ids.clear()
+#     # Flush remaining buffer
+#     generated_ids.extend(buffer_ids)
+#     if not generated_ids:
+#         return "<silence>"
+#     text = tokenizer.decode(generated_ids, skip_special_tokens=True)
+#     return text.strip()
 
 
 def stream_generate(model, tokenizer, prompt, device):
@@ -97,6 +79,8 @@ def stream_generate(model, tokenizer, prompt, device):
     generated_ids = []
     buffer_ids = []
 
+    allowed_prefixes = ("[Scout", "[Inner")
+
     for _ in range(config.MAX_NEW_TOKENS):
 
         tokens = tokens[:, -config.BLOCK_SIZE:]
@@ -121,26 +105,33 @@ def stream_generate(model, tokenizer, prompt, device):
 
         buffer_ids.append(tok_id)
 
-        preview = tokenizer.decode(buffer_ids, skip_special_tokens=True).strip()
+        # Decode candidate text BEFORE flushing buffer
+        candidate_ids = generated_ids + buffer_ids
+        candidate = tokenizer.decode(candidate_ids, skip_special_tokens=True)
 
-        # Baton pass detection
-        if preview.endswith("Trey]"):
-            if not generated_ids:
-                yield "<silence>"
-            return
+        # ── Strict speaker prefix guard ─────────────────────
+        if "[" in candidate:
+            last = candidate.rfind("[")
+            fragment = candidate[last:]
 
-        # Speaker tag detection
-        if "[Trey" in preview:
-            if not generated_ids:
-                yield "<silence>"
-            return
+            # If a tag begins forming but is not Scout/Inner, abort
+            if not any(
+                p.startswith(fragment) or fragment.startswith(p)
+                for p in allowed_prefixes
+            ):
+                if not generated_ids:
+                    yield "<silence>"
+                return
 
-        # Release buffer once safe
+        # ── Safe streaming flush ────────────────────────────
         if len(buffer_ids) >= 3:
             generated_ids.extend(buffer_ids)
             buffer_ids.clear()
 
-            text = tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
+            text = tokenizer.decode(
+                generated_ids,
+                skip_special_tokens=True
+            ).strip()
 
             yield text
 
@@ -150,6 +141,13 @@ def stream_generate(model, tokenizer, prompt, device):
         yield "<silence>"
         return
 
-    text = tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
+    text = tokenizer.decode(
+        generated_ids,
+        skip_special_tokens=True
+    ).strip()
+
+    # Remove any hanging tags from the end of the generated text.
+    if text.endswith("["):
+        text = text[:-1].strip()
 
     yield text

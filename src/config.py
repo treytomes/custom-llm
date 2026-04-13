@@ -10,51 +10,8 @@ from pathlib import Path
 # If enabled, Mistral will scrub the day's chat for coherency before submitting it for fine-tuning.
 ENABLE_MISTRAL_CHAT_SCRUBBING = False
 
-# If enabled, Mistral will generate Scout's dream sequence based on the day's chat.
-# If disabled, Scout will attempt prompt continuations from "[Inner] " until her block size is reached.
-ENABLE_MISTRAL_LED_DREAMS = False
-
-#
-# Generation parameters (how the model speaks)
-#
-
-# This limits how many tokens the model is allowed to generate in a single response.
-# 
-# Kept short intentionally — Scout's coherent window at 50M is ~3 sentences.
-# Increase as coherence improves with scale.
-MAX_NEW_TOKENS = 128
-
-# Temperature controls randomness in sampling.
-# Lower values → safer, repetitive, predictable.
-# Higher values → more creative but more errors.
-# Typical range:
-# | Temperature | Behavior |
-# |---|---|
-# | 0.2–0.4 | deterministic |
-# | 0.5–0.7 | balanced |
-# | 0.8–1.0 | creative |
-# | >1.0 | chaotic |
-TEMPERATURE    = 0.7   # Try raising this later in the training cycle.
-
-# Top‑K sampling restricts token choices to the K most probable tokens.
-# Example:
-# 
-# If the vocabulary has 32k tokens but TOP_K = 40, the model only samples from the 40 most likely next tokens.
-# 
-# This reduces:
-# * nonsense outputs
-# * rare-token glitches
-# * degenerate sampling loops
-TOP_K          = 40
-
-# This penalizes tokens that already appeared earlier in the response.
-# Typical values:
-# | Value | Effect |
-# |---|---|
-# | 1.0 | off |
-# | 1.1 | mild |
-# | 1.2–1.5 | strong |
-REP_PENALTY    = 1.3
+# If enabled, Mistral will generate Scout's dream sequence based on the day's chat when Scout's own dream fails to generate.
+ENABLE_MISTRAL_LED_DREAMS = True
 
 #
 # Training parameters
@@ -136,7 +93,7 @@ LOG_FILE = LOG_DIR / "chat.jsonl"
 # Effects:
 # * smaller → faster training
 # * larger → better reasoning and memory
-BLOCK_SIZE           = 512
+BLOCK_SIZE           = 640
 DAY_CONTEXT_TOKENS   = BLOCK_SIZE * 3 // 4
 NIGHT_CONTEXT_TOKENS = BLOCK_SIZE - DAY_CONTEXT_TOKENS
 
@@ -181,3 +138,47 @@ MODEL_HEADS  = 8
 # The tokenizer determines Scout's inner vocabulary.
 # Changing it post-training would likely be catastrophic.
 TOKENIZER_NAME = "mistralai/Mistral-7B-v0.1"
+
+
+#
+# Generation parameters (how the model speaks)
+#
+
+# This limits how many tokens the model is allowed to generate in a single response.
+# 
+# Kept short intentionally — Scout's coherent window at 50M is ~3 sentences.
+# Increase as coherence improves with scale.
+# MAX_NEW_TOKENS = BLOCK_SIZE // 4
+MAX_NEW_TOKENS = BLOCK_SIZE // 6
+
+# Temperature controls randomness in sampling.
+# Lower values → safer, repetitive, predictable.
+# Higher values → more creative but more errors.
+# Typical range:
+# | Temperature | Behavior |
+# |---|---|
+# | 0.2–0.4 | deterministic |
+# | 0.5–0.7 | balanced |
+# | 0.8–1.0 | creative |
+# | >1.0 | chaotic |
+TEMPERATURE    = 0.7   # Try raising this later in the training cycle.
+
+# Top‑K sampling restricts token choices to the K most probable tokens.
+# Example:
+# 
+# If the vocabulary has 32k tokens but TOP_K = 40, the model only samples from the 40 most likely next tokens.
+# 
+# This reduces:
+# * nonsense outputs
+# * rare-token glitches
+# * degenerate sampling loops
+TOP_K          = 40
+
+# This penalizes tokens that already appeared earlier in the response.
+# Typical values:
+# | Value | Effect |
+# |---|---|
+# | 1.0 | off |
+# | 1.1 | mild |
+# | 1.2–1.5 | strong |
+REP_PENALTY    = 1.3

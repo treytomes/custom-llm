@@ -211,6 +211,14 @@ def begin_dreaming(log_file: str):
     )
 
 
+SLEEP_MESSAGES = [
+    "The day is full ahead of you.",
+    "The morning is passing.",
+    "The afternoon is settling in.", 
+    "The day is drawing toward its close.",
+]
+
+
 def run_chat_repl():
     model, tokenizer, device = initialize("Conversational Interactive Chat")
 
@@ -226,32 +234,40 @@ def run_chat_repl():
     last_prompt = None
     last_response = None
 
+    day_progress = 0
+
     try:
         while True:
-            user_text = prompt_user()
-            if not user_text:
-                continue
+            if len(conversation_history) == 0:
+                user_text = f"Good morning Scout.\n[Inner] {SLEEP_MESSAGES[day_progress]}"
+                console.print(f"[bold blue][{config.USER_NAME}][/bold blue] {user_text}")
+            else:
+                user_text = prompt_user()
+                if not user_text:
+                    continue
 
-            # ── DPO correction command ─────────────────────
+                new_day_progress = min(
+                    len(SLEEP_MESSAGES) - 1,
+                    int(conversation_tokens / config.DAY_CONTEXT_TOKENS * len(SLEEP_MESSAGES))
+                )
+                if new_day_progress != day_progress:
+                    day_progress = new_day_progress
+                    user_text += f"\n[Inner] {SLEEP_MESSAGES[day_progress]}"
+                    console.print(f"[bold blue][{config.USER_NAME}:updated][/bold blue] {user_text}")
 
-            if user_text.startswith(":correction"):
-                generate_dpo_pair(user_text, last_prompt, last_response)
-                continue
+                # ── DPO correction command ─────────────────────
+                if user_text.startswith(":correction"):
+                    generate_dpo_pair(user_text, last_prompt, last_response)
+                    continue
 
             # ── Normal conversation turn ───────────────────
-
             user_turn = f"[{config.USER_NAME}] {user_text}\n"
-
             prompt = "".join(conversation_history) + f"[{config.MODEL_NAME}]"
 
             conversation_history.append(user_turn)
-
             output = stream_display(model, tokenizer, prompt, device)
-
             scout_turn = f"[{config.MODEL_NAME}] {output}\n"
-
             conversation_history.append(scout_turn)
-
             log_turn(log_file, user_text, output)
 
             # Track last exchange for corrections
@@ -263,14 +279,12 @@ def run_chat_repl():
             full_text = "".join(conversation_history)
 
             conversation_tokens = count_tokens(tokenizer, full_text)
-
             console.print(
-                f"[dim]Context: {conversation_tokens}/{config.BLOCK_SIZE} tokens[/dim]"
+                f"[dim]Context: {conversation_tokens}/{config.DAY_CONTEXT_TOKENS} tokens[/dim]"
             )
 
             # ── Context overflow handling ──────────────────
-
-            if conversation_tokens >= config.BLOCK_SIZE:
+            if conversation_tokens >= config.DAY_CONTEXT_TOKENS:
                 console.print(
                     "\n[bold yellow]Context window full.[/bold yellow]\n"
                 )
