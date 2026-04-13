@@ -24,7 +24,11 @@ from transformers import (
 
 import config
 from ai_client.tokenizer import load_tokenizer
-from model.loader import init_model
+from model.loader import init_model, load_checkpoint
+
+
+DREAM_LR = 5e-6
+DREAM_FINE_TUNE_PASSES = 2
 
 logger = logging.getLogger(__name__)
 
@@ -179,15 +183,31 @@ def compute_loss(model, input_ids):
     )
 
 
+def calculate_dream_steps(text: str, tokenizer, min_steps: int = 50, max_steps: int = 300) -> int:
+    """
+    Calculate fine-tuning steps proportional to content length.
+    Targets approximately 2 passes over the material.
+    """
+    tokens = tokenizer.encode(text)
+    token_count = len(tokens)
+    
+    chunks = max(1, token_count // config.BLOCK_SIZE)
+    steps = chunks * DREAM_FINE_TUNE_PASSES
+    
+    return max(min_steps, min(steps, max_steps))
+
+
 def run_dream_training(
     dream_dir: Path,
     checkpoint_path: Path,
-    steps: int = 300,
-    lr: float = 5e-6,
 ):
     from train.train import save_checkpoint
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    lr = DREAM_LR
+    tokenizer = load_tokenizer()
+    text = load_recent_dreams(dream_dir)
+    steps = calculate_dream_steps(text, tokenizer)
 
     logger.info("═" * 60)
     logger.info("Dream training — %s", config.MODEL_NAME)
@@ -196,10 +216,6 @@ def run_dream_training(
     logger.info("LR         : %.2e", lr)
     logger.info("Device     : %s", device)
     logger.info("═" * 60)
-
-    tokenizer = load_tokenizer()
-
-    text = load_recent_dreams(dream_dir)
 
     chunks = build_chunks(
         tokenizer,
@@ -250,14 +266,10 @@ def run_dream_training(
     t0 = time.time()
 
     for step in range(steps):
-
         batch = chunks[step % len(chunks)].unsqueeze(0).to(device)
-
         loss = compute_loss(model, batch)
-
         optimizer.zero_grad()
         loss.backward()
-
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
 
         optimizer.step()
@@ -267,7 +279,6 @@ def run_dream_training(
         total_loss += loss.item()
 
         if (step + 1) % 20 == 0:
-
             avg = total_loss / 20
             elapsed = time.time() - t0
 
@@ -282,9 +293,7 @@ def run_dream_training(
             t0 = time.time()
 
     checkpoint_dir = checkpoint_path.parent
-
     logger.info("Saving checkpoint at step %d", global_step)
-
     save_checkpoint(
         out_dir=checkpoint_dir,
         step=global_step,
