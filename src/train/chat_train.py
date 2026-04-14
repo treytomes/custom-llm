@@ -316,6 +316,7 @@ def build_chunks(
 def run_chat_training(
     chat_path: Path,
     checkpoint_path: Path,
+    auto_accept: bool = False
 ):
     lr = CHAT_FINE_TUNE_LR
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -334,7 +335,8 @@ def run_chat_training(
     logger.info("LR         : %.2e", lr)
     logger.info("Device     : %s", device)
     logger.info("═" * 60)
-    input("Press <Enter> to continue.")
+    if not auto_accept:
+        input("Press <Enter> to continue.")
 
     chunks = build_chunks(
         tokenizer,
@@ -437,7 +439,8 @@ def run_chat_training(
 
 def run_chat_cleanup_and_training(
     chat_log_path,
-    checkpoint_path
+    checkpoint_path,
+    auto_accept: bool = False,
 ):
     pairs = load_chat_pairs(chat_log_path)
     if not pairs:
@@ -464,15 +467,16 @@ def run_chat_cleanup_and_training(
     logger.info(f"Transcript saved → {chat_path}")
 
     # ── Ask user for approval ───────────────────────────────
-    decision = input("Accept this transcript for training? (y/n): ").strip().lower()
+    if not auto_accept:
+        decision = input("Accept this transcript for training? (y/n): ").strip().lower()
 
-    if decision not in ("y", "yes"):
-        logger.info("Transcript rejected. Training aborted. Deleting transcript.")
-        try:
-            chat_path.unlink()
-        except FileNotFoundError:
-            pass
-        return
+        if decision not in ("y", "yes"):
+            logger.info("Transcript rejected. Training aborted. Deleting transcript.")
+            try:
+                chat_path.unlink()
+            except FileNotFoundError:
+                pass
+            return
 
     logger.info("Transcript accepted.")
     logger.info("Starting chat SFT training...")
@@ -480,6 +484,7 @@ def run_chat_cleanup_and_training(
     run_chat_training(
         chat_path=chat_path,
         checkpoint_path=checkpoint_path,
+        auto_accept=auto_accept,
     )
 
     logger.info("Chat training complete.")

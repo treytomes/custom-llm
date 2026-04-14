@@ -60,123 +60,159 @@ Requirements
 
 """
 
+import argparse
+import datetime
+import os
 import sagemaker
-from sagemaker.pytorch import PyTorch
+import sys
+from dotenv import load_dotenv
+# from sagemaker.pytorch import PyTorch
+from sagemaker.pytorch.model import PyTorchModel
+
+import config
+
+# -------------------------------------------------------------
+# Constants
+# -------------------------------------------------------------
+
+INSTANCE_TYPE = "ml.g5.2xlarge"
+
+# Alternative CPU-only instance for debugging
+# instance_type="ml.r5.xlarge",
+
+INSTANCE_COUNT = 1
+
+# Approximate on-demand pricing.
+# Reference: https://calculator.aws/#/createCalculator/SageMaker
+INSTANCE_PRICE_PER_HOUR = {
+    "ml.g5.2xlarge": 1.51,
+    "ml.r5.xlarge": 0.30,
+}
+
+TARGET_COST_USD = 10.0
 
 
 # -------------------------------------------------------------
-# Initialize SageMaker session
+# Helpers
 # -------------------------------------------------------------
+
+def max_runtime_seconds(target_cost, instance_type, instance_count):
+    price = INSTANCE_PRICE_PER_HOUR[instance_type]
+    hours = target_cost / (price * instance_count)
+    return int(hours * 3600)
+
+
+def build_training_job_name(project, environment):
+    timestamp = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    return f"{project}-{environment}-{timestamp}"
+
+
+# -------------------------------------------------------------
+# Load environment
+# -------------------------------------------------------------
+
+load_dotenv()
+
+PROJECT = os.getenv("PROJECT")
+OWNER = os.getenv("OWNER")
+ENVIRONMENT = os.getenv("ENVIRONMENT")
+
+ROLE_ARN = os.getenv("SAGEMAKER_EXECUTION_ROLE_ARN")
+BUCKET = os.getenv("S3_BUCKET_NAME")
 
 # Establish a connection to the SageMaker service.
 session = sagemaker.Session()
 
-# Retrieve the IAM execution role attached to the environment.
-# This role must allow:
-#   - reading training data from S3
-#   - writing checkpoints to S3
-#   - launching SageMaker training jobs
-role = sagemaker.get_execution_role()
-
-
 # -------------------------------------------------------------
-# S3 Configuration
+# S3 paths
 # -------------------------------------------------------------
 
-# Primary S3 bucket used for training resources
-bucket = "bitnet-training-456088019014-us-east-1-an"
-
-# Location of the raw training corpus
-# This directory should contain .txt files.
-training_data = f"s3://{bucket}/corpus/"
-
-# Location where model checkpoints are stored
-checkpoint_s3 = f"s3://{bucket}/checkpoints/"
-
+training_data = f"s3://{BUCKET}/corpus/"
+checkpoint_s3 = f"s3://{BUCKET}/checkpoints/"
 
 # -------------------------------------------------------------
-# Configure the SageMaker PyTorch Estimator
+# CLI
+# -------------------------------------------------------------
+parser = argparse.ArgumentParser()
+parser.add_argument("--estimate", action="store_true",
+                    help="Estimate runtime instead of launching job")
+args = parser.parse_args()
+
+# -------------------------------------------------------------
+# Runtime budget
+# -------------------------------------------------------------
+
+max_runtime = max_runtime_seconds(
+    TARGET_COST_USD,
+    INSTANCE_TYPE,
+    INSTANCE_COUNT,
+)
+
+hours = max_runtime / 3600
+
+if args.estimate:
+    print("")
+    print("SageMaker Training Cost Estimate")
+    print("------------------------------------------------")
+    print(f"Instance type        : {INSTANCE_TYPE}")
+    print(f"Instance count       : {INSTANCE_COUNT}")
+    print(f"Instance price/hr    : ${INSTANCE_PRICE_PER_HOUR[INSTANCE_TYPE]:.2f}")
+    print(f"Target cost          : ${TARGET_COST_USD:.2f}")
+    print(f"Max runtime          : {max_runtime} seconds ({hours:.2f} hours)")
+
+    # Optional step estimate (requires throughput guess)
+    SECONDS_PER_LOG = 18400 # from the local CPU run
+    ASSUMED_STEPS_PER_SEC = config.LOG_INTERVAL / SECONDS_PER_LOG 
+
+    est_steps = int(max_runtime * ASSUMED_STEPS_PER_SEC)
+
+    print("")
+    print("Approximate Training Capacity")
+    print("------------------------------------------------")
+    print(f"Assumed steps/sec    : {ASSUMED_STEPS_PER_SEC}")
+    print(f"Estimated steps      : {est_steps:,}")
+
+    sys.exit(0)
+    
+print(f"Target cost: ${TARGET_COST_USD}")
+print(f"Max runtime: {max_runtime} seconds")
+
+# -------------------------------------------------------------
+# Estimator
 # -------------------------------------------------------------
 
 estimator = PyTorch(
-
-    # Script executed inside the SageMaker training container.
-    # This launches the local training pipeline so both
-    # local and remote training share the same code path.
-    entry_point="launch_training_local.py",
-
-    # Directory containing the training source code.
-    # The entire project directory will be uploaded to SageMaker.
+    entry_point="main.py",
     source_dir=".",
-
-    # IAM role used by the training container.
-    role=role,
-
-    # Number of instances used for distributed training.
-    # Set to >1 for multi-node training.
-    instance_count=1,
-
-    # Type of compute instance used for training.
-    # ml.g5.2xlarge includes:
-    #   • 1 NVIDIA A10G GPU
-    #   • 8 vCPUs
-    #   • 32 GB RAM
-    #
-    # This is sufficient for training ~50M parameter models.
-    instance_type="ml.g5.2xlarge",
-
-    # Alternative CPU-only instance for debugging
-    # instance_type="ml.r5.xlarge",
-
-    # PyTorch framework version used by the SageMaker container.
+    role=ROLE_ARN,
+    instance_count=INSTANCE_COUNT,
+    instance_type=INSTANCE_TYPE,
     framework_version="2.1",
-
-    # Python runtime version used inside the container.
     py_version="py310",
-
-    # ---------------------------------------------------------
-    # Checkpoint configuration
-    # ---------------------------------------------------------
-
-    # S3 location where checkpoints will be stored.
     checkpoint_s3_uri=checkpoint_s3,
-
-    # Local directory inside the SageMaker container where
-    # checkpoints are written during training.
     checkpoint_local_path="/opt/ml/checkpoints",
-
-    # ---------------------------------------------------------
-    # Hyperparameters passed to the training script
-    # ---------------------------------------------------------
-
+    max_run=max_runtime,
     hyperparameters={
-
-        # Location where SageMaker downloads the training data.
-        # The dataset from `training_data` will appear here.
-        "data_dir": "/opt/ml/input/data/train",
-
-        # Directory where the training script should write
-        # model checkpoints.
+        "data_file": "/opt/ml/input/data/train/corpus.pt",
         "output_dir": "/opt/ml/checkpoints",
-
-        # S3 bucket used by the training script when uploading
-        # checkpoints such as "latest.pt".
-        "s3_bucket": bucket,
-    }
+        "s3_bucket": BUCKET,
+    },
+    tags=[
+        {"Key": "project", "Value": PROJECT},
+        {"Key": "owner", "Value": OWNER},
+        {"Key": "environment", "Value": ENVIRONMENT},
+    ],
 )
 
-
 # -------------------------------------------------------------
-# Launch training job
+# Launch training
 # -------------------------------------------------------------
 
-# Start the SageMaker training job.
-# SageMaker will:
-#   1. Upload the project source code
-#   2. Provision the training instance
-#   3. Download the dataset from S3
-#   4. Execute launch_training_local.py
-#   5. Stream logs to the console
-estimator.fit({
-    "train": training_data
-})
+job_name = build_training_job_name(PROJECT, ENVIRONMENT)
+
+print(f"Launching training job: {job_name}")
+
+estimator.fit(
+    {"train": training_data},
+    job_name=job_name
+)

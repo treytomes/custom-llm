@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 import config
 from ai_client.tokenizer import load_tokenizer
 from chat.repl import run_chat_repl
+from chat.story_repl import run_story_repl
 from corpus.transform_corpus import generate_dialogue_corpus
 from corpus.generate_chat_corpus import generate_chat_corpus
 from train.data import (
@@ -290,6 +291,14 @@ def chat():
     Start interactive chat with the trained model.
     """
     run_chat_repl()
+
+
+@app.command()
+def story_chat():
+    """
+    Execute a series of chats based on story telling.
+    """
+    run_story_repl()
 
 
 @app.command()

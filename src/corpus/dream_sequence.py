@@ -225,6 +225,9 @@ def save_dream(text, output_dir):
     text = re.sub(rgx, '', text)
     text = re.sub(r"\n{3,}", "\n\n", text)
 
+    if not text.startswith("["):
+        text = "[" + text
+
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -276,7 +279,7 @@ def generate_self_dream(transcript: str) -> str:
     model.eval()
 
     # ── Seed: day transcript + first [Inner] tag ──────────────
-    seed_text = transcript.strip() + f"\n[{config.USER_NAME}] Good night Scout.\n\n[Inner]"
+    seed_text = transcript.strip() + f"\n[{config.USER_NAME}] Good night Scout.\n[Inner]"
     seed_ids = tokenizer.encode(
         seed_text,
         add_special_tokens=False,
@@ -285,6 +288,8 @@ def generate_self_dream(transcript: str) -> str:
 
     # Truncate seed to leave room for dream generation
     # max_seed = config.BLOCK_SIZE // 2
+
+    # I've maxed out BLOCK_SIZE to leave room for "hallucination" during the dream.
 
     # Theoretically, leaving room for dream generation should not be needed.
     # The transcript should have already been slipped by the block size given to the day.
@@ -313,7 +318,6 @@ def generate_self_dream(transcript: str) -> str:
 
     with Live(layout, console=console, refresh_per_second=6):
         while generated_ids.shape[1] < config.BLOCK_SIZE:
-
             context = generated_ids[:, -config.BLOCK_SIZE:]
 
             with torch.no_grad():
@@ -342,12 +346,13 @@ def generate_self_dream(transcript: str) -> str:
             if (
                 remaining > 8                        # room for tag + content
                 and turn_text.rstrip()[-1:] in sentence_endings
+                and not turn_text.rstrip()[-10:].lower().endswith(("mrs.", "mr.", "ms."))
                 and len(current_turn_ids) >= 5       # avoid injecting on tiny fragments
             ):
                 next_speaker = speakers[speaker_turn % 2]
                 speaker_turn += 1
 
-                tag_text = f"\n\n{next_speaker}"
+                tag_text = f"\n{next_speaker}"
                 tag_ids  = tokenizer.encode(
                     tag_text,
                     add_special_tokens=False,
@@ -397,6 +402,7 @@ def run_dream(
     chat_log_path,
     voice_file,
     output_dir,
+    auto_accept: bool = False
 ) -> str:
     """
     Allow Scout to dream over the events of the day.
@@ -418,12 +424,13 @@ def run_dream(
     )
 
     # ── Ask user for approval ───────────────────────────────
-    decision = input("Accept this transcript for training? (y/n): ").strip().lower()
-    if decision not in ("y", "yes"):
-        logger.info("Transcript rejected. Training aborted. Deleting transcript.")
-        dream = None
-    else:
-        logger.info("Transcript accepted.")
+    if not auto_accept:
+        decision = input("Accept this transcript for training? (y/n): ").strip().lower()
+        if decision not in ("y", "yes"):
+            logger.info("Transcript rejected. Training aborted. Deleting transcript.")
+            dream = None
+        else:
+            logger.info("Transcript accepted.")
 
     if not dream and config.ENABLE_MISTRAL_LED_DREAMS:
         client = build_client()

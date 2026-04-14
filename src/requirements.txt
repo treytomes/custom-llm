@@ -4,6 +4,7 @@ openai
 python-dotenv
 rich
 safetensors
+sagemaker==2.257.1
 sentencepiece>=0.1.99
 tokenizers
 torch>=2.1.0

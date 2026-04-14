@@ -93,8 +93,13 @@ LOG_FILE = LOG_DIR / "chat.jsonl"
 # Effects:
 # * smaller → faster training
 # * larger → better reasoning and memory
-BLOCK_SIZE           = 640
-DAY_CONTEXT_TOKENS   = BLOCK_SIZE * 3 // 4
+
+CURRENT_BLOCK_SIZE   = 768 # the current "practiced" block size 
+BLOCK_SIZE           = 1024 # the theoretical useful "max" for a 50M model.
+DAY_CONTEXT_TOKENS   = CURRENT_BLOCK_SIZE * 3 // 4
+
+# This formula might allow Scout to begin her dream in a coherent state, then gradually descend into hallucinations,
+# roughly emulating a human dream state.
 NIGHT_CONTEXT_TOKENS = BLOCK_SIZE - DAY_CONTEXT_TOKENS
 
 # This is how many training sequences are processed per optimization step.
@@ -149,7 +154,7 @@ TOKENIZER_NAME = "mistralai/Mistral-7B-v0.1"
 # Kept short intentionally — Scout's coherent window at 50M is ~3 sentences.
 # Increase as coherence improves with scale.
 # MAX_NEW_TOKENS = BLOCK_SIZE // 4
-MAX_NEW_TOKENS = BLOCK_SIZE // 6
+MAX_NEW_TOKENS = CURRENT_BLOCK_SIZE // 6
 
 # Temperature controls randomness in sampling.
 # Lower values → safer, repetitive, predictable.

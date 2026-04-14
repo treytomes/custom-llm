@@ -58,7 +58,6 @@ def build_story_prompts(chapter_path: Path, output_dir: Path):
     Generate synthetic user prompts from a chapter using a token window.
 
     Each prompt:
-      • begins with "[Trey] "
       • contains roughly DAY_CONTEXT_TOKENS * 3/4 tokens
       • ends on a sentence boundary
       • overlaps the next prompt by one sentence
@@ -116,7 +115,7 @@ def build_story_prompts(chapter_path: Path, output_dir: Path):
 
             i = start
 
-        prompt_text = "[Trey] Continuing the story: " + " ".join(current)
+        prompt_text = "Continuing the story: " + " ".join(current)
         prompts.append(prompt_text)
 
         if j >= len(sentences):

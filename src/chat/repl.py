@@ -32,6 +32,14 @@ from train.dream_train import run_dream_training
 from train.chat_train import run_chat_cleanup_and_training
 
 
+SLEEP_MESSAGES = [
+    "The day is full ahead of you.",
+    "The morning is passing.",
+    "The afternoon is settling in.", 
+    "The day is drawing toward its close.",
+]
+
+
 console = Console()
 
 
@@ -176,7 +184,7 @@ def generate_dpo_pair(user_text, last_prompt, last_response):
     console.print("[green]DPO correction saved.[/green]\n")
 
 
-def begin_dreaming(log_file: str):
+def begin_dreaming(log_file: str, auto_accept: bool = False):
     console.print(
         "\n[bold yellow]Dreaming about the events of the day...[/bold yellow]\n"
     )
@@ -185,6 +193,7 @@ def begin_dreaming(log_file: str):
         chat_log_path=log_file,
         voice_file=config.VOICE_FILE,
         output_dir="../data/dreams",
+        auto_accept=auto_accept,
     )
 
     if dream_path is not None:
@@ -202,6 +211,7 @@ def begin_dreaming(log_file: str):
             run_chat_cleanup_and_training(
                 chat_log_path=log_file,
                 checkpoint_path=config.CHECKPOINT_PATH,
+                auto_accept=auto_accept,
             )
         except ValueError as e:
             console.print(f"[red]{e}[/red]\n")
@@ -211,15 +221,12 @@ def begin_dreaming(log_file: str):
     )
 
 
-SLEEP_MESSAGES = [
-    "The day is full ahead of you.",
-    "The morning is passing.",
-    "The afternoon is settling in.", 
-    "The day is drawing toward its close.",
-]
+def run_chat_repl(
+    initial_prompt: str | None = None,
+    continuous_chat: bool = True,
+    auto_accept: bool = False,
+):
 
-
-def run_chat_repl():
     model, tokenizer, device = initialize("Conversational Interactive Chat")
 
     conversation_history = []
@@ -235,30 +242,37 @@ def run_chat_repl():
     last_response = None
 
     day_progress = 0
+    day_index = 0
 
     try:
         while True:
-            if len(conversation_history) == 0:
-                user_text = f"Good morning Scout.\n[Inner] {SLEEP_MESSAGES[day_progress]}"
-                console.print(f"[bold blue][{config.USER_NAME}][/bold blue] {user_text}")
+            if day_progress == 0 and day_index == 0 and initial_prompt:
+                user_text = initial_prompt
+
+                # Guard to ensure the initial prompt isn't submitted again.
+                initial_prompt = None
             else:
                 user_text = prompt_user()
-                if not user_text:
-                    continue
+            
+            if not user_text:
+                continue
+            if len(conversation_history) == 0:
+                user_text = f"Good morning Scout.\n[Inner] {SLEEP_MESSAGES[day_progress]}\n[{config.USER_NAME}] {user_text}"
+                console.print(f"[bold blue][{config.USER_NAME}][/bold blue] {user_text}")
 
-                new_day_progress = min(
-                    len(SLEEP_MESSAGES) - 1,
-                    int(conversation_tokens / config.DAY_CONTEXT_TOKENS * len(SLEEP_MESSAGES))
-                )
-                if new_day_progress != day_progress:
-                    day_progress = new_day_progress
-                    user_text += f"\n[Inner] {SLEEP_MESSAGES[day_progress]}"
-                    console.print(f"[bold blue][{config.USER_NAME}:updated][/bold blue] {user_text}")
+            new_day_progress = min(
+                len(SLEEP_MESSAGES) - 1,
+                int(conversation_tokens / config.DAY_CONTEXT_TOKENS * len(SLEEP_MESSAGES))
+            )
+            if new_day_progress != day_progress:
+                day_progress = new_day_progress
+                user_text += f"\n[Inner] {SLEEP_MESSAGES[day_progress]}"
+                console.print(f"[bold blue][{config.USER_NAME}:updated][/bold blue] {user_text}")
 
-                # ── DPO correction command ─────────────────────
-                if user_text.startswith(":correction"):
-                    generate_dpo_pair(user_text, last_prompt, last_response)
-                    continue
+            # ── DPO correction command ─────────────────────
+            if user_text.startswith(":correction"):
+                generate_dpo_pair(user_text, last_prompt, last_response)
+                continue
 
             # ── Normal conversation turn ───────────────────
             user_turn = f"[{config.USER_NAME}] {user_text}\n"
@@ -289,22 +303,27 @@ def run_chat_repl():
                     "\n[bold yellow]Context window full.[/bold yellow]\n"
                 )
 
-                begin_dreaming(log_file)
-                
-                console.print(
-                    "\n[bold green]Starting new conversation.[/bold green]\n"
-                )
+                begin_dreaming(log_file, auto_accept)
 
-                model, tokenizer, device = load_model_state()
+                if continuous_chat:
+                    console.print(
+                        "\n[bold green]Starting new conversation.[/bold green]\n"
+                    )
 
-                conversation_history = []
-                conversation_tokens = 0
+                    model, tokenizer, device = load_model_state()
 
-                log_file = build_log_path()
+                    conversation_history = []
+                    conversation_tokens = 0
+                    day_progress = 0
+                    day_index += 1
 
-                console.print(
-                    f"[dim]New log file → {log_file.name}[/dim]\n"
-                )
+                    log_file = build_log_path()
+
+                    console.print(
+                        f"[dim]New log file → {log_file.name}[/dim]\n"
+                    )
+                else:
+                    break
 
     except KeyboardInterrupt:
         console.print("\n[bold red]Exiting chat.[/bold red]\n")
